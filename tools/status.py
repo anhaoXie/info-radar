@@ -217,7 +217,29 @@ def show_progress() -> int:
         parts = "，".join(f"{k} {v}" for k, v in eval_origin.items())
         print(f"       评估集来源：{parts}")
 
-    print(stage_line("S5", "权限层 · 限额与无人值守", "待办"))
+    health = health_summary()
+    alert_exists = (PROJECT_ROOT / "out" / "ALERT.md").exists()
+    s5_status = "有警报" if alert_exists else ("OK" if health else "待办")
+    print(stage_line("S5", "权限层 · 限额与无人值守", s5_status))
+    if health:
+        print(f"       运行记录 {health['run_count']} 次")
+        if health["last_run"]:
+            last = health["last_run"]
+            skipped = f"　跳过 {last.get('skipped')} 步" if last.get("skipped") else ""
+            print(f"       上次运行 {last.get('ts', '?')}　"
+                  f"{'成功' if last.get('ok') else '失败'}　用时 {last.get('seconds')}s{skipped}")
+        if health["escalating"]:
+            print(f"       连续失败达阈值的任务：{'、'.join(health['escalating'])}")
+    else:
+        print("       还没有运行记录。跑一次：run.cmd daily --stub")
+
+    if alert_exists:
+        print()
+        print("  " + "!" * 62)
+        print("  !! 存在未处理的警报：out/ALERT.md")
+        print("     有任务连续失败达到阈值。这不是「今天没新闻」，是「流程坏了」。")
+        print("     跑 run.cmd health 看是哪个任务、连续失败了几次。")
+        print("  " + "!" * 62)
 
     print()
     print(hr())
@@ -336,6 +358,13 @@ def show_help() -> int:
     print("    run.cmd review --apply <时间戳>  应用审核：生成终版 + 回流评估集")
     print("    run.cmd review --stats        评估集来源统计")
     print()
+    print("  自动化（S5）")
+    print("    run.cmd health                看任务健康表（不联网、不要密钥，每天先看它）")
+    print("    run.cmd daily --stub          用假模型跑一遍完整流程")
+    print("    run.cmd daily --no-collect    只处理 inbox，不抓 RSS")
+    print("    run.cmd daily                 真正跑一次（要密钥）")
+    print("    run.cmd daily --continue-on-error  失败后继续（默认会停下）")
+    print()
     print("  标注（S1 的核心工作，唯一不能交给 AI 的一步）")
     print("    run.cmd sample -N 20    抽 20 条，生成标注表和阅读工作纸")
     print("    run.cmd labels          看标注进度")
@@ -404,6 +433,40 @@ def count_results() -> int:
     if not directory.is_dir():
         return 0
     return len(list(directory.glob("*.jsonl")))
+
+
+def health_summary() -> dict:
+    """读健康表。这一层信息决定面板能不能回答"它现在还活着吗"。"""
+    path = PROJECT_ROOT / "data" / "cache" / "health.json"
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+    tasks = data.get("tasks", {})
+    escalating = [
+        name
+        for name, record in tasks.items()
+        if int(record.get("consecutive_failures") or 0) >= escalation_threshold()
+    ]
+    runs = data.get("runs", [])
+    return {
+        "tasks": tasks,
+        "escalating": escalating,
+        "last_run": runs[-1] if runs else None,
+        "run_count": len(runs),
+        "alert_file": (PROJECT_ROOT / "out" / "ALERT.md").exists(),
+    }
+
+
+def escalation_threshold() -> int:
+    try:
+        policy = json.loads((PROJECT_ROOT / "config" / "policy.json").read_text(encoding="utf-8"))
+        return int(policy.get("health", {}).get("escalate_after_consecutive_failures", 3))
+    except (json.JSONDecodeError, OSError, ValueError):
+        return 3
 
 
 def eval_set_origins() -> dict:

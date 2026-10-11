@@ -18,6 +18,7 @@ out/eval/*
 out/logs/*
 out/results/*
 out/review/*
+out/ALERT.md
 !out/digests/.gitkeep
 !out/eval/.gitkeep
 !out/logs/.gitkeep

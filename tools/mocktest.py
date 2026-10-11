@@ -41,6 +41,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 import src.llm as llm_module  # noqa: E402
+import src.collect as collect_mod  # noqa: E402
 from src.ledger import Budget, BudgetExceeded, Ledger  # noqa: E402
 from src.llm import FatalLLMError, LLMClient, RetryableLLMError  # noqa: E402
 
@@ -784,6 +785,71 @@ def main() -> int:
             check("假模型的输出带明显标记（假结果看起来像真的最危险）",
                   "[假模型]" in json.dumps(run5.outcomes[0].output, ensure_ascii=False))
             check("假模型不产生成本", run5.total_cost == 0.0, f"实际 {run5.total_cost}")
+
+            # ---------------------------------------------------- 大声失败
+            print("\n[⑤ 权限层 · 大声失败的三条保证]")
+
+            import src.pipeline as pipeline_mod
+            from src import runner as runner_mod
+            from src.runner import StepSkipped, _step_digest, _step_pipeline
+
+            # 1) 全部信息源失败 —— 不该被当成"今天没有新内容"
+            dead_sources = {
+                "sources": [{"name": "死源", "url": "http://127.0.0.1:1/feed", "enabled": True}],
+                "fetch": {"timeout_seconds": 2, "delay_between_sources": 0, "min_body_chars": 10},
+            }
+            real_load_sources = collect_mod.load_sources
+            real_load_policy = collect_mod.load_policy
+            collect_mod.load_sources = lambda: dead_sources
+            collect_mod.load_policy = lambda: {"network": {"feed_hosts": ["127.0.0.1"]}}
+            try:
+                error = expect_raises(
+                    "全部信息源失败时大声报错", RuntimeError, runner_mod._step_collect
+                )
+                check("报错信息里指名道姓地列出了失败的源", "死源" in str(error or ""),
+                      f"实际 {str(error or '')[:100]}")
+            finally:
+                collect_mod.load_sources = real_load_sources
+                collect_mod.load_policy = real_load_policy
+
+            # 2) 所有条目都调用失败 —— 那是密钥/余额/网络的问题，不是内容的问题
+            class FakePipeline:
+                def __init__(self, *a, **k):
+                    pass
+
+                def select(self, **k):
+                    return [{"id": "x1", "title": "会失败的条目"}]
+
+                def run(self, items):
+                    from src.pipeline import ItemOutcome, RunResult
+
+                    result = RunResult(candidates=1)
+                    result.outcomes.append(
+                        ItemOutcome(item_id="x1", status="call_failed", error="boom")
+                    )
+                    return result, None
+
+            real_pipeline_class = pipeline_mod.Pipeline
+            pipeline_mod.Pipeline = FakePipeline
+            try:
+                expect_raises(
+                    "所有条目都调用失败时大声报错，并指出不是内容的问题",
+                    RuntimeError,
+                    lambda: _step_pipeline(stub=True),
+                    contains="不是内容有问题",
+                )
+            finally:
+                pipeline_mod.Pipeline = real_pipeline_class
+
+            # 3) 没有新结果时不能拿旧结果去渲染日报 —— 但也【不能】算失败
+            expect_raises(
+                "没有新结果时拒绝渲染旧日报",
+                StepSkipped,
+                lambda: _step_digest(None),
+                contains="没有可渲染",
+            )
+            # 「跳过」与「失败」的完整区分（含计数归零、警报撤销）在 selftest 里，
+            # 那里不需要 HTTP，跑得更快，也更适合放这种纯状态机断言。
 
     finally:
         llm_module.time = real_time  # type: ignore[assignment]

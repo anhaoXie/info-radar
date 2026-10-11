@@ -24,6 +24,8 @@ REM    run.cmd compile
 REM    run.cmd pipeline
 REM    run.cmd digest
 REM    run.cmd review --apply <stamp>
+REM    run.cmd daily
+REM    run.cmd health
 REM    run.cmd eval -Limit 3
 REM    run.cmd ledger
 REM ============================================================
@@ -59,6 +61,8 @@ if /i "%CMD%"=="compile"  goto :c_compile
 if /i "%CMD%"=="pipeline" goto :c_pipeline
 if /i "%CMD%"=="digest"   goto :c_digest
 if /i "%CMD%"=="review"   goto :c_review
+if /i "%CMD%"=="daily"    goto :c_daily
+if /i "%CMD%"=="health"   goto :c_health
 if /i "%CMD%"=="eval"     goto :c_eval
 if /i "%CMD%"=="sources"  goto :c_sources
 if /i "%CMD%"=="ledger"   goto :c_ledger
@@ -130,6 +134,14 @@ exit /b %ERRORLEVEL%
 
 :c_eval
 python src\evaluate.py %REST%
+exit /b %ERRORLEVEL%
+
+:c_daily
+python src\runner.py --daily %REST%
+exit /b %ERRORLEVEL%
+
+:c_health
+python src\runner.py --health
 exit /b %ERRORLEVEL%
 
 :c_sources

@@ -564,6 +564,122 @@ def main() -> int:
         finally:
             archive_mod.EVAL_SET_PATH = original_path
 
+    # ---------------------------------------------------------- ⑤ 权限层
+    print("\n[⑤ 权限层 · 每日运行与健康记录]")
+
+    from src import runner as runner_mod
+    from src.runner import Health, StepSkipped, run_daily
+
+    with tempfile.TemporaryDirectory() as tmp:
+        alert_path = Path(tmp) / "ALERT.md"
+        original_alert = runner_mod.ALERT_PATH
+        runner_mod.ALERT_PATH = alert_path
+        try:
+            health = Health(Path(tmp) / "health.json", escalate_after=3, keep_runs=3)
+            calls: list[str] = []
+
+            def ok_step(name):
+                def fn():
+                    calls.append(name)
+                    return f"{name} 完成"
+                return fn
+
+            def fail_step(name):
+                def fn():
+                    calls.append(name)
+                    raise RuntimeError(f"{name} 炸了")
+                return fn
+
+            def skip_step(name):
+                def fn():
+                    calls.append(name)
+                    raise StepSkipped("没有新内容")
+                return fn
+
+            # ---- 正常一轮
+            calls.clear()
+            out = run_daily([("a", ok_step("a")), ("b", ok_step("b"))], health=health, echo=False)
+            check("全成功时运行标记为成功", out["ok"] is True)
+            check("每一步都写进了健康表",
+                  health.get("a")["last_summary"] == "a 完成"
+                  and health.get("b")["last_summary"] == "b 完成")
+            check("成功时连续失败计数为 0", health.get("a")["consecutive_failures"] == 0)
+
+            # ---- 默认遇错即停
+            calls.clear()
+            out = run_daily(
+                [("a", ok_step("a")), ("b", fail_step("b")), ("c", ok_step("c"))],
+                health=health, echo=False,
+            )
+            check("默认遇错即停，不执行后面的步骤", calls == ["a", "b"], f"实际执行了 {calls}")
+            check("停在失败的那一步", out["stopped_at"] == "b")
+            check("运行被标记为失败", out["ok"] is False)
+            check("失败计数 +1", health.get("b")["consecutive_failures"] == 1)
+            check("失败原因被记下来", "炸了" in (health.get("b")["last_error"] or ""))
+
+            # ---- continue-on-error
+            calls.clear()
+            out = run_daily(
+                [("a", ok_step("a")), ("b", fail_step("b")), ("c", ok_step("c"))],
+                health=health, continue_on_error=True, echo=False,
+            )
+            check("--continue-on-error 时会继续执行", calls == ["a", "b", "c"], f"实际 {calls}")
+            check("继续执行也仍然标记本次运行失败", out["ok"] is False)
+            check("失败计数累加到 2", health.get("b")["consecutive_failures"] == 2,
+                  f"实际 {health.get('b')['consecutive_failures']}")
+            check("未达阈值时不该有警报文件", not alert_path.exists())
+
+            # ---- 达到阈值 -> 升级
+            run_daily([("b", fail_step("b"))], health=health, echo=False)
+            check("连续失败达阈值触发警报", health.get("b")["consecutive_failures"] == 3,
+                  f"实际 {health.get('b')['consecutive_failures']}")
+            check("警报文件被写出来", alert_path.exists())
+            check("警报里写明了是哪个任务", "`b`" in alert_path.read_text(encoding="utf-8"))
+            check("警报里说明了怎么恢复",
+                  "run.cmd daily" in alert_path.read_text(encoding="utf-8"))
+
+            # ---- 恢复 -> 自动撤销警报
+            out = run_daily([("b", ok_step("b"))], health=health, echo=False)
+            check("恢复后失败计数清零", health.get("b")["consecutive_failures"] == 0)
+            check("恢复后警报文件被自动删除", not alert_path.exists(), "长期悬挂的警报等于没有警报")
+            check("撤销动作被记录在本次结果里", out.get("alert_cleared") is True)
+
+            # ---- 跳过不是失败：这一层最容易做错的地方
+            health2 = Health(Path(tmp) / "health2.json", escalate_after=3, keep_runs=5)
+            for _ in range(3):
+                run_daily([("x", fail_step("x"))], health=health2, echo=False)
+            check("（前置）x 已经连续失败 3 次", health2.get("x")["consecutive_failures"] == 3)
+            check("（前置）警报已发出", alert_path.exists())
+
+            out = run_daily([("x", skip_step("x")), ("y", ok_step("y"))], health=health2, echo=False)
+            check("跳过时本次运行仍然是成功的", out["ok"] is True,
+                  "把跳过一次算作失败，连续三天没新闻就会触发假警报")
+            check("跳过会把连续失败计数清零", health2.get("x")["consecutive_failures"] == 0,
+                  "不清零就会得到一个长期悬挂、永远不会撤销的警报")
+            check("跳过被单独统计", out["skipped"] == 1, f"实际 {out['skipped']}")
+            check("跳过的摘要写明了原因",
+                  "没有新内容" in str(health2.get("x")["last_summary"]))
+            check("跳过之后警报被撤销", not alert_path.exists())
+
+            # ---- 运行历史有上限
+            health3 = Health(Path(tmp) / "health3.json", escalate_after=3, keep_runs=3)
+            for _ in range(6):
+                run_daily([("z", ok_step("z"))], health=health3, echo=False)
+            check("运行历史被裁剪到上限", len(health3.data["runs"]) == 3,
+                  f"实际 {len(health3.data['runs'])} 条（健康表是'最近怎么样'，不是永久档案）")
+
+            # ---- 健康表能读回来
+            # 注意这里是 a/b/c 三个：修好 --continue-on-error 之前，
+            # c 根本不会被执行，所以这个断言当时"通过"了 ——
+            # 它是被 bug 的行为校准出来的。修好之后它才开始失败。
+            # 这就是为什么改完一个 bug 必须把整套测试重跑一遍，
+            # 而不是只看你刚修的那一条。
+            table = health.table()
+            check("健康表列出了所有执行过的任务", {row["task"] for row in table} == {"a", "b", "c"},
+                  f"实际 {[row['task'] for row in table]}")
+        finally:
+            runner_mod.ALERT_PATH = original_alert
+
     # ---------------------------------------------------------- 结果
     print()
     print("=" * 68)

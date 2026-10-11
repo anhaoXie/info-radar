@@ -28,7 +28,14 @@
 | **S2** | ① 数据层 —— 抓取、去重、缓存 | 🔄 抓取与去重已通；**实测发现 RSS 不给全文，详见 doc 02** |
 | **S3** | ③ 工作流层 —— 编排、失败隔离、断点续跑 | ✅ **代码就绪，可以 `--dry-run` / `--stub` 先看** |
 | **S4** | ④ 分发 + 审核层 —— 日报、审核队列、回流评估集 | ✅ **代码就绪，`run.cmd digest` 直接可用** |
-| S5 | ⑤ 权限 + 自动化 —— 限额、定时、大声失败 | ⬜ |
+| **S5** | ⑤ 权限 + 自动化 —— 限额、定时、大声失败 | ✅ **代码就绪，`run.cmd daily --stub` 直接可用** |
+
+**六层全部建成。** 剩下的全是你才能提供的东西：你的文档、你的判断、你的密钥。
+
+> **现在就能走完整个闭环，一次密钥都不需要：**
+> ```
+> 写文档 → inbox → daily --stub → 填审核表 → review --apply → health
+> ```
 
 随便什么时候想知道自己到哪了：`run.cmd status`
 
@@ -41,13 +48,13 @@
 一个需要密钥才能告诉你"我打算做什么"的工具，你只会在已经出错的时候才用它。
 
 ```powershell
-run.cmd selftest                  # 100 项纯逻辑自检
-run.cmd mocktest                  # 89 项全链路自检（本地假服务端）
+run.cmd selftest                  # 128 项纯逻辑自检
+run.cmd mocktest                  # 93 项全链路自检（本地假服务端）
+run.cmd health                    # 任务健康表
 run.cmd inbox                     # 导入本地文档
 run.cmd sample -N 20              # 抽样本、做标注表
 run.cmd compile                   # 编译评估集
-run.cmd pipeline --dry-run        # 看它打算处理哪些条目
-run.cmd pipeline --stub           # 用假模型把整条链路跑一遍
+run.cmd daily --stub --no-collect # 用假模型跑一遍完整流程
 run.cmd digest                    # 看日报和审核表长什么样
 run.cmd review                    # 看历史产出
 ```
@@ -57,7 +64,7 @@ run.cmd review                    # 看历史产出
 
 > **一个完整的闭环，现在就能走完（不需要密钥）：**
 > ```
-> 写文档 → inbox → pipeline --stub → digest → 填审核表 → review --apply
+> 写文档 → inbox → daily --stub --no-collect → 填审核表 → review --apply → health
 > ```
 > 走完之后，`eval/eval_set.jsonl` 里会多出带 `label_origin: "review"` 的样本。
 > 那就是"这套系统会自己变强"的样子。
@@ -158,7 +165,8 @@ info-radar/
 │   ├─ evaluate.py           ⓪ 评估：基线、回归、人工审核表
 │   ├─ collect.py            ① 数据层：RSS 抓取 + 本地投喂 + 两级去重
 │   ├─ pipeline.py           ③ 工作流层：编排 / 失败隔离 / 断点续跑
-│   └─ archive.py            ④ 分发层：日报 / 审核队列 / 回流评估集
+│   ├─ archive.py            ④ 分发层：日报 / 审核队列 / 回流评估集
+│   └─ runner.py             ⑤ 自动化层：每日运行 / 健康记录 / 失败升级
 │
 ├─ tools/
 │   ├─ probe.py              探测与自检：把"我以为"换成"服务端说"
@@ -215,6 +223,12 @@ run.cmd digest                        # 从最新一轮结果生成日报 + 审�
 run.cmd review                        # 看历史产出
 run.cmd review --apply <时间戳>        # 应用审核：生成终版 + 回流评估集
 run.cmd review --stats                # 评估集来源统计
+
+# ---- 自动化（S5）----
+run.cmd health                        # 看任务健康表（不联网、不要密钥，每天先看它）
+run.cmd daily --stub --no-collect     # 用假模型跑一遍完整流程
+run.cmd daily                         # 真正跑一次（要密钥）
+run.cmd daily --continue-on-error     # 失败后继续（默认会停下，见下）
 
 # ---- 模型与评估（要联网、要密钥）----
 run.cmd doctor                        # 环境自检

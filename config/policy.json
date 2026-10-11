@@ -1,14 +1,12 @@
 {
   "_layer": "⑤ 权限层 —— 这些数字不是文档，是代码里真的会 raise 的判断。",
   "_readme": "把权限写成配置而不是散落在代码里的 if，好处是『收紧权限』变成一次改配置，而不是一次重构。",
-
   "budget": {
     "max_calls_per_run": 200,
     "max_cost_per_run_cny": 1.0,
     "max_cost_per_day_cny": 5.0,
     "_note": "单价未配置时只统计 token 数，成本按 0 计，此时只有 max_calls_per_run 生效。"
   },
-
   "network": {
     "allowed_hosts": [
       "open.bigmodel.cn",
@@ -18,7 +16,6 @@
       "api.deepseek.com"
     ],
     "_note": "默认拒绝，而不是默认允许。这是【模型调用】能去的域名。",
-
     "feed_hosts": [
       "www.qbitai.com",
       "www.infoq.cn",
@@ -28,19 +25,24 @@
       "openai.com"
     ],
     "_feed_note": "这是【信息源】能去的域名，和模型域名分开列。分开的理由：这两类出网的后果不同 —— 前者是把数据发出去，后者是把数据拿回来。新增信息源时两处都要改（sources.json 和这里），这个额外步骤是故意的：出网应该是一次有意识的决定，而不是顺手加一行。",
-
     "timeout_seconds": 60,
     "max_retries": 3
   },
-
   "ledger": {
     "store_full_prompt": false,
     "prompt_preview_chars": 200,
     "_note": "默认不存完整提示词：账本是审计用的，不该变成第二份数据副本。需要排查时临时打开。"
   },
-
   "output": {
-    "writable_dirs": ["data/", "out/"],
+    "writable_dirs": [
+      "data/",
+      "out/"
+    ],
     "_note": "工作流只允许往这两个目录写。想写到别处必须来改这里 —— 这就是『边界写在明处』。"
+  },
+  "health": {
+    "escalate_after_consecutive_failures": 3,
+    "keep_run_history": 30,
+    "_note": "连续失败到阈值就写 out/ALERT.md 并让退出码非零。3 这个数字的理由：一次失败可能是网络抖动，连着三次就一定是坏了。"
   }
 }
