@@ -198,6 +198,87 @@ def main() -> int:
         except SystemExit as exc:
             check("真实的评估集能被读出来", False, str(exc)[:110])
 
+    # ---- 和上次对比：S3 的整个循环是「改动 → 重跑 → 比较数字 → 留或回退」
+    #
+    # 中间那一步原来根本没有实现 —— 你得自己去 out/eval/ 翻两个 JSON 对照。
+    # 而整套系统的意义恰恰在于回答"这次改动有没有用"。
+    print("\n[⓪ 评估层 · 和上次比]")
+
+    from src import evaluate as eval_mod
+
+    with tempfile.TemporaryDirectory() as tmp:
+        fake_root = Path(tmp)
+        eval_dir = fake_root / "out" / "eval"
+        eval_dir.mkdir(parents=True)
+
+        def write_run(stem: str, **overrides) -> None:
+            metrics = {
+                "task_id": "t1",
+                "eval_set": "eval/eval_set.jsonl",
+                "category_judged": 20,
+                "category_accuracy": 0.55,
+                "format_ok_rate": 1.0,
+                "importance_mae": 0.85,
+                "cost_avg_cny": 0.00031,
+            }
+            metrics.update(overrides)
+            (eval_dir / f"{stem}.json").write_text(
+                json.dumps({"metrics": metrics, "records": []}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+        # 四种【不可比】的结果，都不该被选中
+        write_run("20260101-000000", stub=True, category_accuracy=0.05)
+        write_run("20260102-000000", truncated=True, category_accuracy=0.90)
+        write_run("20260103-000000", task_id="别的任务", category_accuracy=0.97)
+        write_run("20260104-000000", eval_set="eval/别的集.jsonl", category_accuracy=0.99)
+        write_run("20260105-000000", category_accuracy=0.55)
+
+        real_root = eval_mod.PROJECT_ROOT
+        eval_mod.PROJECT_ROOT = fake_root
+        try:
+            picked = eval_mod.find_previous_run(
+                before="20260201-000000", task_id="t1", eval_set="eval/eval_set.jsonl"
+            )
+            nothing = eval_mod.find_previous_run(
+                before="20260101-000000", task_id="t1", eval_set="eval/eval_set.jsonl"
+            )
+        finally:
+            eval_mod.PROJECT_ROOT = real_root
+
+        check("对比时跳过假模型 / 中止的 / 换任务 / 换评估集的",
+              picked is not None and picked[0].stem == "20260105-000000",
+              f"实际选中 {picked[0].stem if picked else None}")
+        check("没有可比基线时返回 None，而不是硬凑一个", nothing is None)
+
+    base = {
+        "category_judged": 20, "category_accuracy": 0.55, "format_ok_rate": 1.0,
+        "importance_mae": 0.85, "cost_avg_cny": 0.00031,
+    }
+
+    flat = eval_mod.render_comparison(base, dict(base), "x")
+    check("完全一样时显示『持平』",
+          all("持平" in line for line in flat if "→" in line),
+          f"实际 {[line for line in flat if '→' in line]}")
+
+    better_lines = eval_mod.render_comparison(base, dict(base, category_accuracy=0.70), "x")
+    check("准确率上升标为『变好』", any("变好" in line for line in better_lines))
+    check("样本只有 20 条时提醒留有怀疑",
+          any(("怀疑" in line or "运气" in line) for line in better_lines),
+          "20 条样本下 +15% 也可能只是换了一条蒙对的")
+
+    worse_lines = eval_mod.render_comparison(base, dict(base, category_accuracy=0.40), "x")
+    check("准确率下降标为『变差』", any("变差" in line for line in worse_lines))
+
+    cost_lines = [line for line in eval_mod.render_comparison(
+        base, dict(base, cost_avg_cny=0.00042), "x") if "成本" in line]
+    check("成本用足够的小数位（不会显示成 0.0 → 0.0）",
+          bool(cost_lines) and "0.000310" in cost_lines[0], f"实际 {cost_lines}")
+
+    check("对比里含四项指标",
+          sum(1 for line in better_lines if "→" in line) >= 4,
+          f"实际 {sum(1 for line in better_lines if '→' in line)} 项")
+
     # ---------------------------------------------------------- 账本
     print("\n[⓪⑤ 账本与预算]")
 

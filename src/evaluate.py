@@ -263,6 +263,109 @@ def summarize(
     }
 
 
+# ------------------------------------------------------------------ 与上次对比
+
+
+def find_previous_run(*, before: str, task_id: str, eval_set: str) -> tuple[Path, dict] | None:
+    """找上一次【可比】的评估结果。
+
+    "可比"的严格定义是这段代码里最重要的部分，因为它决定了你会不会
+    读出一个假的"变好了 / 变差了"：
+
+      · 假模型（stub）跑出来的数字不能比 —— 它永远回答「其他」
+      · 被预算中止的一半结果不能比 —— 分母都不一样
+      · 换了任务定义、或换了评估集的，不能比 —— 尺子变了
+
+    不符合的统统跳过。宁可说"没有可比的基线"，也不给一个错的对比。
+    """
+    out_dir = PROJECT_ROOT / "out" / "eval"
+    if not out_dir.exists():
+        return None
+
+    candidates: list[tuple[str, Path, dict]] = []
+    for path in out_dir.glob("*.json"):
+        if path.stem >= before:
+            continue
+        try:
+            data = json.loads(read_text_smart(path))
+        except (json.JSONDecodeError, OSError, ValueError):
+            continue
+        metrics = data.get("metrics") or {}
+        if metrics.get("stub") or metrics.get("truncated"):
+            continue
+        if metrics.get("task_id") != task_id or metrics.get("eval_set") != eval_set:
+            continue
+        candidates.append((path.stem, path, metrics))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0])
+    _, path, metrics = candidates[-1]
+    return path, metrics
+
+
+def render_comparison(prev: dict, cur: dict, prev_label: str) -> list[str]:
+    """把"和上次比"渲染成几行。
+
+    这里最要紧的一句话是【噪声提醒】。
+    20 条样本时，1 条样本就是 5 个百分点 ——
+    准确率从 55% 涨到 60%，可能只是换了一条蒙对的。
+    不把这件事说出来，你会为了一个不存在的进步去改提示词，
+    然后在下一次得到一个不存在的退步。
+    """
+    lines: list[str] = []
+    judged = cur.get("category_judged") or 0
+    one_sample = (100.0 / judged) if judged else None
+
+    def delta(cur_value, prev_value, *, unit="", precision=1,
+              lower_is_better=False, scale=1.0):
+        """一行对比。precision 很重要 ——
+        单条成本常在 0.0003 元这个量级，用一位小数会显示成「0.0 → 0.0 变差」，
+        看起来像个笑话，而它其实是有意义的。"""
+        if cur_value is None or prev_value is None:
+            return "（上次没有这个数字）"
+        c, p = cur_value * scale, prev_value * scale
+        diff = c - p
+        fmt = f"{{:.{precision}f}}"
+        if abs(diff) < 10 ** (-precision) / 2:
+            return f"{fmt.format(p)}{unit} → {fmt.format(c)}{unit}　持平"
+        better = (diff < 0) if lower_is_better else (diff > 0)
+        mark = "变好" if better else "变差"
+        sign = "+" if diff > 0 else ""
+        return (f"{fmt.format(p)}{unit} → {fmt.format(c)}{unit}　"
+                f"{sign}{fmt.format(diff)}{unit}　{mark}")
+
+    lines.append(f"  对比基线        {prev_label}")
+    lines.append("    分类准确率    " + delta(
+        cur.get("category_accuracy"), prev.get("category_accuracy"),
+        unit="%", precision=1, scale=100.0))
+    lines.append("    格式合规率    " + delta(
+        cur.get("format_ok_rate"), prev.get("format_ok_rate"),
+        unit="%", precision=1, scale=100.0))
+    lines.append("    重要性误差    " + delta(
+        cur.get("importance_mae"), prev.get("importance_mae"),
+        precision=2, lower_is_better=True))
+    lines.append("    单条成本      " + delta(
+        cur.get("cost_avg_cny"), prev.get("cost_avg_cny"),
+        unit=" 元", precision=6, lower_is_better=True))
+
+    # 噪声提醒：只差一条样本的，不要当结论。
+    cur_acc, prev_acc = cur.get("category_accuracy"), prev.get("category_accuracy")
+    if one_sample is not None and cur_acc is not None and prev_acc is not None:
+        diff_samples = abs(cur_acc - prev_acc) * judged
+        if diff_samples <= 1.0001:
+            lines.append("")
+            lines.append(f"  ! 这次只差 {diff_samples:.0f} 条样本"
+                         f"（{judged} 条里的一条 = {one_sample:.0f} 个百分点）。")
+            lines.append("    这个差别可能只是运气。**别据此下结论**，先把样本量做大。")
+        elif judged < 50:
+            lines.append("")
+            lines.append(f"  ! 样本只有 {judged} 条，1 条 = {one_sample:.0f} 个百分点。")
+            lines.append("    差别看起来不小，但仍然要留一点怀疑。")
+
+    return lines
+
+
 # ------------------------------------------------------------------ 主流程
 
 
@@ -410,6 +513,32 @@ def main() -> int:
     print(f"  人工审核表      {review_path.relative_to(PROJECT_ROOT)}   <-- 现在去看这个")
     print(f"  账本            {ledger.path.relative_to(PROJECT_ROOT)}")
     print()
+
+    # ---- 和上一次可比的结果对比
+    #
+    # S3 的整个循环是：改动 → 重跑 → 【比较数字】→ 留或回退。
+    # 中间那一步原来是空的 —— 你得自己去 out/eval/ 翻两个 JSON 文件对照。
+    # 于是"这次改动有没有用"这个问题实际上没人回答得了，
+    # 而整套系统的意义恰恰在于回答它。
+    if not truncated and not args.stub:
+        previous = find_previous_run(
+            before=stamp,
+            task_id=str(task_cfg.get("id")),
+            eval_set=str(metrics.get("eval_set")),
+        )
+        if previous is None:
+            print("  对比基线        没有找到可比的基线。")
+            print("                  这是第一条 —— 它的作用就是当尺子。")
+            print("                  改了提示词或换了模型之后，再跑一次就会和它比。")
+            print()
+        else:
+            prev_path, prev_metrics = previous
+            for line in render_comparison(
+                prev_metrics, metrics, f"out/eval/{prev_path.name}"
+            ):
+                print(line)
+            print()
+
     if truncated:
         print("  下一步：调大 config/policy.json 的 budget 限额，或分批跑。")
     elif args.stub:
