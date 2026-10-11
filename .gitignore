@@ -1,0 +1,31 @@
+# 密钥：绝对不能进版本库
+.env
+
+# 抓下来的原文和处理缓存：体积大、可重新获取
+data/raw/*
+data/cache/*
+!data/raw/.gitkeep
+!data/cache/.gitkeep
+
+# 产出：属于"结果"，不属于"代码"
+out/digests/*
+out/eval/*
+out/logs/*
+!out/digests/.gitkeep
+!out/eval/.gitkeep
+!out/logs/.gitkeep
+
+# 探测结果：本机环境的快照，换台机器就不一样了
+config/providers.discovered.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

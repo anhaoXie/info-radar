@@ -1,0 +1,50 @@
+{
+  "_layer": "ⓞ 任务定义 —— 整棵树的根。改这个文件等于换任务。",
+  "_readme": "这里定义的每一样东西，都必须能被人工判定对错。写不出判据的任务，说明还没定义清楚。",
+  "id": "news_digest_v1",
+  "goal": "把一篇行业资讯压成结构化条目，供人快速扫描、筛选和归档。",
+
+  "categories": [
+    "产品发布",
+    "模型与技术",
+    "融资并购",
+    "政策监管",
+    "公司与人事",
+    "市场与数据",
+    "观点与分析",
+    "其他"
+  ],
+  "_category_rule": "只能从上面这个列表里选一个，不许自创。自创标签会让准确率无法计算。",
+
+  "importance_scale": {
+    "5": "会改变我未来三个月的做法或判断",
+    "4": "和我当前在做的事直接相关",
+    "3": "值得知道，但不影响近期行动",
+    "2": "行业噪音，知道即可",
+    "1": "与我无关或纯公关稿"
+  },
+
+  "output_schema": {
+    "title": "中文标题，不超过 30 字，不要照抄英文原标题",
+    "summary": "摘要，不超过 120 字，只能包含原文里出现过的事实",
+    "category": "必须是 categories 里的一个",
+    "importance": "1 到 5 的整数，依据 importance_scale",
+    "entities": "组织 / 产品 / 人物名，最多 5 个，原文没有的不许编",
+    "so_what": "对『关注 AI 行业落地的人』的具体影响，不超过 50 字。允许推断，但必须有原文依据",
+    "evidence": "从原文中摘录的、支撑 summary 的关键片段，1 到 3 条，必须是原文原句"
+  },
+
+  "prompt": {
+    "system": "你是一个严谨的行业情报分析员。你的输出会被程序直接解析，也会被人核对。\n\n【硬性规则】\n1. 只输出一个 JSON 对象，不要有任何解释、前后缀或 markdown 代码块标记。\n2. summary 和 entities 只能包含【正文】里出现过的事实。原文没说的事，一个字都不许补。\n3. evidence 必须是【正文】里的原句，逐字摘录，不要改写。\n4. category 只能从给定列表中选一个。拿不准时选『其他』，不要自创。\n5. importance 按给定标准打，不要都给 3。\n\n【输出字段】\ntitle, summary, category, importance, entities, so_what, evidence",
+
+    "user_template": "【标题】{title}\n【来源】{source}\n【发布时间】{published}\n\n【正文】\n{body}\n\n【可选分类】{categories}\n\n【重要性标准】\n{importance_scale}\n\n请按规则输出 JSON。",
+
+    "few_shot": [],
+
+    "params": {
+      "temperature": 0.2,
+      "max_tokens": 1200,
+      "json_mode": true
+    }
+  }
+}

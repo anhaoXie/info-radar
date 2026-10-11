@@ -1,0 +1,17 @@
+{
+  "_layer": "① 数据层",
+  "_status": "本文件在 S2 阶段才会被代码读取。现在放在这里，是为了让你先想清楚『料从哪来』。",
+  "_readme": "优先用 RSS / Atom / 官方 API。能拿契约就不要去解析别人的网页 —— 网页会改版，改版就静默失效。",
+  "_how_to_add": "复制一个块，改 name / url / category_hint。url 必须是以 .xml 或 /feed 结尾的订阅地址，不是网页地址。",
+  "_verify": "加完之后跑 `python tools/probe.py --check-sources`，它会真的去抓一次，告诉你哪个源是死的。",
+
+  "sources": [
+    {
+      "name": "占位示例 · 请替换成你真正要盯的源",
+      "url": "",
+      "category_hint": "模型与技术",
+      "enabled": false,
+      "note": "把 url 填上、enabled 改成 true 才会被抓取。留空是为了让你第一次运行时不会误抓一堆无关内容。"
+    }
+  ]
+}

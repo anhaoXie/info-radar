@@ -1,0 +1,35 @@
+{
+  "_layer": "⑤ 权限层 —— 这些数字不是文档，是代码里真的会 raise 的判断。",
+  "_readme": "把权限写成配置而不是散落在代码里的 if，好处是『收紧权限』变成一次改配置，而不是一次重构。",
+
+  "budget": {
+    "max_calls_per_run": 200,
+    "max_cost_per_run_cny": 1.0,
+    "max_cost_per_day_cny": 5.0,
+    "_note": "单价未配置时只统计 token 数，成本按 0 计，此时只有 max_calls_per_run 生效。"
+  },
+
+  "network": {
+    "allowed_hosts": [
+      "open.bigmodel.cn",
+      "dashscope.aliyuncs.com",
+      "api.moonshot.cn",
+      "ark.cn-beijing.volces.com",
+      "api.deepseek.com"
+    ],
+    "_note": "S2 阶段接信息源时，新的域名必须显式加进来。默认拒绝，而不是默认允许。",
+    "timeout_seconds": 60,
+    "max_retries": 3
+  },
+
+  "ledger": {
+    "store_full_prompt": false,
+    "prompt_preview_chars": 200,
+    "_note": "默认不存完整提示词：账本是审计用的，不该变成第二份数据副本。需要排查时临时打开。"
+  },
+
+  "output": {
+    "writable_dirs": ["data/", "out/"],
+    "_note": "工作流只允许往这两个目录写。想写到别处必须来改这里 —— 这就是『边界写在明处』。"
+  }
+}
