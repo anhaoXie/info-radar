@@ -775,6 +775,51 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001
             check("遇到彻底读不了的文件也不会崩", False, f"抛了 {type(exc).__name__}")
 
+    # 审核表也是用户手写的 —— out/review/<时间戳>.txt
+    from src.archive import parse_review as _parse_review
+
+    with tempfile.TemporaryDirectory() as tmp:
+        review_gbk = Path(tmp) / "review.txt"
+        review_gbk.write_bytes(
+            "```text\nabc123 |  | 模型与技术 | 4\n```\n".encode("gbk")
+        )
+        parsed_gbk = _parse_review(review_gbk)
+        entry = parsed_gbk.get("abc123", {})
+        check("审核表是 GBK 编码时也能读",
+              entry.get("category") == "模型与技术" and entry.get("importance") == 4,
+              f"实际 {entry}")
+
+    # 往用户手改过的文件里追加内容：不能制造出"两种编码混在一起"的文件。
+    # 混合编码的文件之后无论用哪种编码读，总有一半是乱码，
+    # 而且很难看出是从哪一行开始坏的。
+    from src import archive as archive_mod2
+
+    with tempfile.TemporaryDirectory() as tmp:
+        mixed = Path(tmp) / "eval_set.jsonl"
+        mixed.write_bytes(
+            '{"id":"g1","gold":{"category":"模型与技术","importance":4}}\n'.encode("gbk")
+        )
+        real_eval_path = archive_mod2.EVAL_SET_PATH
+        archive_mod2.EVAL_SET_PATH = mixed
+        try:
+            added = archive_mod2.append_to_eval_set(
+                [{"id": "g2", "body": "x", "gold": {"category": "其他", "importance": 3}}]
+            )
+            ids_after = archive_mod2.load_eval_set_ids()
+            raw_after = mixed.read_bytes()
+        finally:
+            archive_mod2.EVAL_SET_PATH = real_eval_path
+
+        check("往评估集追加时能读已有的 GBK 内容", added == 1, f"实际追加 {added} 条")
+        check("追加没有丢掉原有的行", ids_after == {"g1", "g2"}, f"实际 {ids_after}")
+        try:
+            raw_after.decode("utf-8")
+            is_utf8 = True
+        except UnicodeDecodeError:
+            is_utf8 = False
+        check("追加后整个文件被统一成 UTF-8（不会变成混合编码）", is_utf8,
+              "GBK 的旧内容 + UTF-8 的新行 = 之后怎么读都是乱码")
+
     # ---------------------------------------------------------- ⑤ 权限层
     print("\n[⑤ 权限层 · 每日运行与健康记录]")
 

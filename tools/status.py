@@ -20,6 +20,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+# 读用户会手工编辑的文件（labels.txt、eval_set.jsonl）必须用宽容版 ——
+# 中文 Windows 的记事本默认存 GBK，用 utf-8 硬读会直接抛栈。
+# 而"标完之后跑 run.cmd status 看进度"恰好是用户会立刻做的那件事。
+from src.config import read_text_smart  # noqa: E402
+
 WIDTH = 64
 
 
@@ -275,12 +280,12 @@ def label_progress() -> tuple[int, int] | None:
     if not candidates_path.exists():
         return None
     try:
-        total = len([ln for ln in candidates_path.read_text(encoding="utf-8").splitlines() if ln.strip()])
+        total = len([ln for ln in read_text_smart(candidates_path).splitlines() if ln.strip()])
     except OSError:
         return None
     filled = 0
     if labels_path.exists():
-        for line in labels_path.read_text(encoding="utf-8").splitlines():
+        for line in read_text_smart(labels_path).splitlines():
             stripped = line.strip()
             if not stripped or stripped.startswith("#") or "|" not in stripped:
                 continue
@@ -306,7 +311,7 @@ def show_ledger() -> int:
 
     calls: list[dict] = []
     evals: list[dict] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in read_text_smart(path).splitlines():
         line = line.strip()
         if not line:
             continue
@@ -444,7 +449,7 @@ def eval_set_state() -> str:
     path = PROJECT_ROOT / "eval" / "eval_set.jsonl"
     if not path.exists():
         return "missing"
-    text = path.read_text(encoding="utf-8")
+    text = read_text_smart(path)
     return "placeholder" if "_placeholder" in text else "real"
 
 
@@ -452,7 +457,7 @@ def count_eval_set_rows() -> int:
     path = PROJECT_ROOT / "eval" / "eval_set.jsonl"
     if not path.exists():
         return 0
-    return len([line for line in path.read_text(encoding="utf-8").splitlines() if line.strip() and not line.startswith("#")])
+    return len([line for line in read_text_smart(path).splitlines() if line.strip() and not line.startswith("#")])
 
 
 def index_summary() -> dict:
@@ -530,7 +535,7 @@ def eval_set_origins() -> dict:
     if not path.exists():
         return {}
     counts: dict[str, int] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in read_text_smart(path).splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue

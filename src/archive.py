@@ -351,7 +351,7 @@ def parse_review(path: Path) -> dict[str, dict]:
         return decisions
 
     inside_block = False
-    for raw in path.read_text(encoding="utf-8").splitlines():
+    for raw in read_text_smart(path).splitlines():
         line = raw.strip()
         if line.startswith("```"):
             inside_block = not inside_block
@@ -418,7 +418,19 @@ def load_eval_set_ids() -> set[str]:
 
 
 def append_to_eval_set(rows: list[dict]) -> int:
-    """把审核结果追加进评估集。已存在的 id 跳过。"""
+    """把审核结果追加进评估集。已存在的 id 跳过。
+
+    【为什么是"重写整个文件"而不是"追加一行"】
+
+    追加看起来更省事，但它有一个真实的坏结局：
+    `eval_set.jsonl` 是【明确希望用户手工编辑】的文件。你在记事本里
+    改一下、保存 —— 中文 Windows 的记事本会把它存成 GBK。
+    这时再用 utf-8 追加，文件里就同时有了两种编码的字节。
+    之后无论用哪种编码去读，总有一半是乱码，而且很难看出是从哪一行开始坏的。
+
+    所以这里改成：整份读进来（宽容地读），加上新行，再整份用 utf-8 写回去。
+    顺便把编码统一了 —— 用户无意中造成的 GBK 文件，会在这一步被顺回 utf-8。
+    """
     if not rows:
         return 0
     EVAL_SET_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -426,9 +438,15 @@ def append_to_eval_set(rows: list[dict]) -> int:
     fresh = [r for r in rows if str(r.get("id")) not in existing]
     if not fresh:
         return 0
-    with EVAL_SET_PATH.open("a", encoding="utf-8") as fh:
-        for row in fresh:
-            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+    # 保留原有的所有内容（含注释行），只在末尾追加
+    old_lines: list[str] = []
+    if EVAL_SET_PATH.exists():
+        old_lines = [
+            line for line in read_text_smart(EVAL_SET_PATH).splitlines() if line.strip()
+        ]
+    new_lines = [json.dumps(row, ensure_ascii=False) for row in fresh]
+    EVAL_SET_PATH.write_text("\n".join(old_lines + new_lines) + "\n", encoding="utf-8")
     return len(fresh)
 
 
