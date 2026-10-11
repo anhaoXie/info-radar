@@ -16,9 +16,13 @@ data/inbox/*
 out/digests/*
 out/eval/*
 out/logs/*
+out/results/*
+out/review/*
 !out/digests/.gitkeep
 !out/eval/.gitkeep
 !out/logs/.gitkeep
+!out/results/.gitkeep
+!out/review/.gitkeep
 
 # 探测结果：本机环境的快照，换台机器就不一样了
 config/providers.discovered.json

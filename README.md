@@ -26,11 +26,32 @@
 | **S0** | ② 模型层 + ⑤ 权限层 —— 密钥、模型适配、审计账本 | ✅ 代码就绪，等你的 key |
 | **S1** | ⓪ 评估层 —— 判据、真值、基线 | 🔄 **标注链路已通，等你放文档进 `data/inbox/`** |
 | **S2** | ① 数据层 —— 抓取、去重、缓存 | 🔄 抓取与去重已通；**实测发现 RSS 不给全文，详见 doc 02** |
-| S3 | ③ 工作流层 —— 编排与按数字迭代 | ⬜ |
+| **S3** | ③ 工作流层 —— 编排、失败隔离、断点续跑 | ✅ **代码就绪，可以 `--dry-run` / `--stub` 先看** |
 | S4 | ④ 分发 + 审核层 —— 归档、人工队列、反馈回流 | ⬜ |
 | S5 | ⑤ 权限 + 自动化 —— 限额、定时、大声失败 | ⬜ |
 
 随便什么时候想知道自己到哪了：`run.cmd status`
+
+---
+
+## 不用密钥就能做的事
+
+在你还没有填 `.env` 的时候，这套系统已经能做不少事。
+**把"不需要密钥的操作"和"需要密钥的操作"分开，是它设计上的一条线索** ——
+一个需要密钥才能告诉你"我打算做什么"的工具，你只会在已经出错的时候才用它。
+
+```powershell
+run.cmd selftest                  # 65+ 项纯逻辑自检
+run.cmd mocktest                  # 89 项全链路自检（本地假服务端）
+run.cmd inbox                     # 导入本地文档
+run.cmd sample -N 20              # 抽样本、做标注表
+run.cmd compile                   # 编译评估集
+run.cmd pipeline --dry-run        # 看它打算处理哪些条目
+run.cmd pipeline --stub           # 用假模型把整条链路跑一遍
+```
+
+`--stub` 会输出明显带 `[假模型]` 标记的内容。这不是多此一举：
+**一个看起来像真结果的假结果，比一个明显的错误危险得多。**
 
 ---
 
@@ -127,7 +148,7 @@ info-radar/
 │   ├─ task.py               ⓞ 任务 → 消息 与 输出校验
 │   ├─ evaluate.py           ⓪ 评估：基线、回归、人工审核表
 │   ├─ collect.py            ① 数据层：RSS 抓取 + 本地投喂 + 两级去重
-│   ├─ pipeline.py           ③ 工作流层                        （S3）
+│   ├─ pipeline.py           ③ 工作流层：编排 / 失败隔离 / 断点续跑
 │   └─ archive.py            ④ 分发层                          （S4）
 │
 ├─ tools/
@@ -149,7 +170,9 @@ info-radar/
 │   ├─ raw/                  ① 归一化后的原文
 │   └─ cache/                ① 索引与源健康状态
 └─ out/
-    ├─ digests/              ④ 归档产出
+    ├─ results/              ③ 工作流产出（机器格式，交给 ④ 层）
+    ├─ digests/              ④ 归档产出（给人看的）
+    ├─ review/               ④ 审核队列
     ├─ eval/                 ⓪ 评估结果与审核表
     └─ logs/                 ⑤ 账本 ledger-YYYY-MM-DD.jsonl
 ```
@@ -171,6 +194,12 @@ run.cmd sources                       # 信息源还活着吗
 run.cmd sample -N 20                  # 抽 20 条，生成标注表 + 阅读工作纸
 run.cmd labels                        # 看标注进度
 run.cmd compile                       # 编译成 eval/eval_set.jsonl
+
+# ---- 工作流（S3）----
+run.cmd pipeline --dry-run            # 只看要处理哪些，不发请求、不要密钥
+run.cmd pipeline --stub               # 用假模型跑通链路，不花钱
+run.cmd pipeline                      # 真正处理（要密钥）
+run.cmd pipeline --retry-failed       # 重试之前失败的条目
 
 # ---- 模型与评估（要联网、要密钥）----
 run.cmd doctor                        # 环境自检

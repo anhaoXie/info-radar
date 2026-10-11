@@ -340,6 +340,54 @@ def main() -> int:
         empty_path.write_text("   \n\n", encoding="utf-8")
         check("空文件返回 None 而不是空字符串", collect_mod.read_inbox_file(empty_path) is None)
 
+        # 标题猜测的三条规则。第 3 条是后补的，起因是一个真实的坏结果：
+        # 只有一段长话的 .txt，原来会把第一行截断成标题，于是标题栏里出现
+        # 一句没头没尾的长句，人完全看不出这篇讲什么。
+        short_path = tmp_dir / "short.txt"
+        short_path.write_text("这是一个短标题\n正文第一段。\n", encoding="utf-8")
+        parsed = collect_mod.read_inbox_file(short_path)
+        check("短的第一行会被当成标题", parsed is not None and parsed[0] == "这是一个短标题",
+              f"实际 {parsed[0] if parsed else None}")
+        check("标题行不会重复出现在正文里",
+              parsed is not None and "这是一个短标题" not in parsed[1], f"实际 {parsed[1] if parsed else None}")
+
+        long_path = tmp_dir / "longfirstline.txt"
+        long_path.write_text(
+            "这是一段很长的正文，它并不像一个标题，因为它的长度超过了一般标题的范围，而且读起来是完整的句子。\n第二行内容。",
+            encoding="utf-8",
+        )
+        parsed = collect_mod.read_inbox_file(long_path)
+        check("以句号结尾的第一行（完整句子）不会被误当成标题",
+              parsed is not None and parsed[0] == "longfirstline",
+              f"猜不出来时应退回文件名，实际 {parsed[0] if parsed else None}")
+        check("退回文件名时正文保留全文",
+              parsed is not None and "这是一段很长的正文" in parsed[1],
+              f"实际正文 {parsed[1][:40] if parsed else None}")
+
+        # 正交特征：长度不够就换"结尾标点"来判，比反复调阈值有效
+        punct_path = tmp_dir / "punct.title.txt"
+        punct_path.write_text("短但以句号结尾的一句话。\n下面还有正文。\n", encoding="utf-8")
+        parsed = collect_mod.read_inbox_file(punct_path)
+        check("短但以句号结尾的行也不算标题",
+              parsed is not None and parsed[0] == "punct.title",
+              f"实际 {parsed[0] if parsed else None}")
+
+        longtitle_path = tmp_dir / "longtitle.txt"
+        longtitle_path.write_text(
+            "这是一个相当长的标题它没有以句号结尾所以它应该被认出来\n正文在这里。\n",
+            encoding="utf-8",
+        )
+        parsed = collect_mod.read_inbox_file(longtitle_path)
+        check("长但不以句号结尾的行仍会被当成标题",
+              parsed is not None and parsed[0].startswith("这是一个相当长的标题"),
+              f"实际 {parsed[0] if parsed else None}")
+
+        single_path = tmp_dir / "singleline.txt"
+        single_path.write_text("只有一行，没有第二行可以当正文。", encoding="utf-8")
+        parsed = collect_mod.read_inbox_file(single_path)
+        check("只有一行时不丢内容",
+              parsed is not None and "只有一行" in parsed[1], f"实际 {parsed}")
+
     # ---------------------------------------------------------- 标注
     print("\n[⓪ 评估层 · 标注解析与抽样]")
 

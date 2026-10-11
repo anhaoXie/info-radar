@@ -639,6 +639,152 @@ def main() -> int:
                 lambda: tiny_client.chat([{"role": "user", "content": "再来一次"}]),
             )
 
+            # ---------------------------------------------------- 工作流层
+            print("\n[③ 工作流层 · 编排 / 失败隔离 / 断点续跑]")
+
+            from src.pipeline import Pipeline
+
+            def make_env(where: Path, bodies: dict[str, str]):
+                """在临时目录里造一个完整的 pipeline 环境：原文 + 索引。"""
+                raw_dir = where / "raw"
+                raw_dir.mkdir(parents=True, exist_ok=True)
+                index_path = where / "index.json"
+                results_dir = where / "results"
+                items = {}
+                for order, (item_id, body) in enumerate(bodies.items()):
+                    record = {
+                        "id": item_id,
+                        "title": f"条目 {item_id}",
+                        "source": "测试源",
+                        "body": body,
+                        "body_chars": len(body),
+                        "fetched_at": f"2025-01-{order + 1:02d}T00:00:00+08:00",
+                        "content_hash": item_id,
+                    }
+                    (raw_dir / f"{item_id}.json").write_text(
+                        json.dumps(record, ensure_ascii=False), encoding="utf-8"
+                    )
+                    items[item_id] = {
+                        "title": record["title"],
+                        "source": "测试源",
+                        "processed": False,
+                        "status": None,
+                        "attempts": 0,
+                    }
+                index_path.write_text(
+                    json.dumps({"items": items, "content_hashes": {}}, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                return raw_dir, index_path, results_dir
+
+            def read_index(path: Path) -> dict:
+                return json.loads(path.read_text(encoding="utf-8"))["items"]
+
+            # ---- 失败隔离
+            env_dir = Path(tmp) / "wf"
+            raw_dir, index_path, results_dir = make_env(
+                env_dir,
+                {
+                    "w1": "一条完全正常的正文。",
+                    "w2": "TRIGGER_CONTENT_LIST",          # 返回非 JSON -> 格式不合规
+                    "w3": "TRIGGER_RETRY_500_ALWAYS",      # 持续 500 -> 调用失败
+                    "w4": "另一条完全正常的正文。",
+                },
+            )
+            wf_client, _ = build_client(server, ledger=ledger, budget=budget)
+            wf = Pipeline(
+                wf_client, task_cfg, raw_dir=raw_dir, index_path=index_path,
+                results_dir=results_dir, echo=False,
+            )
+            items = wf.select()
+            check("工作流层能选出待处理条目", len(items) == 4, f"实际 {len(items)}")
+
+            run1, path1 = wf.run(items)
+            check("正常条目成功", run1.ok_count == 2, f"实际 {run1.ok_count}")
+            check("非 JSON 返回被记为格式不合规", run1.format_error_count == 1,
+                  f"实际 {run1.format_error_count}")
+            check("持续失败的条目被记为调用失败", run1.call_failed_count == 1,
+                  f"实际 {run1.call_failed_count}")
+            check("一条失败没有拖垮整批（其余三条都跑完了）", len(run1.outcomes) == 4,
+                  f"实际 {len(run1.outcomes)}")
+            check("产出文件写出来了", path1 is not None and path1.exists())
+
+            summary = json.loads(
+                (results_dir / f"{path1.stem}.summary.json").read_text(encoding="utf-8")
+            )
+            check("汇总文件记下了失败分类",
+                  summary["call_failed"] == 1 and summary["format_error"] == 1,
+                  f"实际 {summary}")
+
+            # ---- 断点续跑
+            index_now = read_index(index_path)
+            check("成功条目被标记为已处理",
+                  index_now["w1"]["processed"] is True and index_now["w4"]["processed"] is True)
+            check("失败条目也被标记为已处理（否则每次运行都会重试、每次扣钱）",
+                  index_now["w3"]["processed"] is True, "失败条目没有被标记，会造成静默烧钱")
+            check("失败条目留下了可读的失败原因", bool(index_now["w3"].get("last_error")))
+            check("失败条目的状态被记下来（不是靠日志去猜）",
+                  index_now["w3"]["status"] == "call_failed", f"实际 {index_now['w3']['status']}")
+
+            wf2 = Pipeline(
+                wf_client, task_cfg, raw_dir=raw_dir, index_path=index_path,
+                results_dir=results_dir, echo=False,
+            )
+            check("重跑时不再选出任何条目（这就是断点续跑，也是不重复花钱）",
+                  wf2.select() == [], f"实际选出 {len(wf2.select())} 条")
+
+            retry_items = wf2.select(retry_failed=True)
+            check("--retry-failed 时只挑出失败过的条目", len(retry_items) == 2,
+                  f"实际 {len(retry_items)} 条")
+
+            # ---- 预算中断
+            budget_dir = Path(tmp) / "wf_budget"
+            raw_dir_b, index_path_b, results_dir_b = make_env(
+                budget_dir, {f"b{i}": f"正常正文第 {i} 条。" for i in range(1, 5)}
+            )
+            cut_budget = Budget(
+                {"budget": {"max_calls_per_run": 2, "max_cost_per_run_cny": 100, "max_cost_per_day_cny": 100}}
+            )
+            cut_client, _ = build_client(server, ledger=ledger, budget=cut_budget)
+            wf3 = Pipeline(
+                cut_client, task_cfg, raw_dir=raw_dir_b, index_path=index_path_b,
+                results_dir=results_dir_b, echo=False,
+            )
+            run3, _ = wf3.run(wf3.select())
+            check("预算中断时标记 truncated", run3.truncated is True)
+            check("中断时停在中途（只处理了 2 条）", len(run3.outcomes) == 2,
+                  f"实际 {len(run3.outcomes)}")
+
+            index_b = read_index(index_path_b)
+            done = [k for k, v in index_b.items() if v.get("processed")]
+            todo = [k for k, v in index_b.items() if not v.get("processed")]
+            check("已处理的 2 条被标记", len(done) == 2, f"实际 {done}")
+            check("没碰过的条目保持未处理状态（下次会接着跑）", len(todo) == 2, f"实际 {todo}")
+
+            wf4 = Pipeline(
+                cut_client, task_cfg, raw_dir=raw_dir_b, index_path=index_path_b,
+                results_dir=results_dir_b, echo=False,
+            )
+            check("中断后重跑，只剩下没处理的那 2 条",
+                  len(wf4.select()) == 2, f"实际 {len(wf4.select())} 条")
+
+            # ---- 假模型
+            print("\n[③ 工作流层 · 没有密钥时的空转模式]")
+            from src.pipeline import StubClient
+
+            stub_dir = Path(tmp) / "wf_stub"
+            raw_dir_s, index_path_s, results_dir_s = make_env(stub_dir, {"s1": "一段正文。"})
+            stub = StubClient()
+            wf5 = Pipeline(
+                stub, task_cfg, raw_dir=raw_dir_s, index_path=index_path_s,
+                results_dir=results_dir_s, echo=False,
+            )
+            run5, _ = wf5.run(wf5.select())
+            check("假模型下链路照样跑通", run5.ok_count == 1, f"实际 {run5.ok_count}")
+            check("假模型的输出带明显标记（假结果看起来像真的最危险）",
+                  "[假模型]" in json.dumps(run5.outcomes[0].output, ensure_ascii=False))
+            check("假模型不产生成本", run5.total_cost == 0.0, f"实际 {run5.total_cost}")
+
     finally:
         llm_module.time = real_time  # type: ignore[assignment]
 

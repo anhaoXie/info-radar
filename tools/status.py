@@ -172,8 +172,25 @@ def show_progress() -> int:
             print("       ^ 静态失败不会自己恢复。跑 run.cmd sources 复查，或把它停用。")
 
     # ---- S3 / S4 / S5
+    summary = index_summary()
+    if summary and summary.get("processed"):
+        s3_status = "OK" if summary.get("failed", 0) == 0 else "有失败"
+    elif count_results():
+        s3_status = "OK"
+    else:
+        s3_status = "待办"
+    print(stage_line("S3", "工作流层 · 编排与迭代", s3_status))
+    if summary:
+        print(f"       库内 {summary['total']} 篇：已处理 {summary['processed']}"
+              f"（成功 {summary['ok']}，失败 {summary['failed']}），待处理 {summary['pending']}")
+        if summary.get("failed"):
+            print("       ^ 失败的条目已被标记为已处理，不会自己重试。")
+            print("         确认要重试就跑：run.cmd pipeline --retry-failed")
+    else:
+        print("       还没有处理过任何条目。跑 run.cmd pipeline 或先 --stub 看看流程")
+    print(f"       历史产出 {count_results()} 份 out/results/")
+
     digest_count = count_files("out/digests")
-    print(stage_line("S3", "工作流层 · 编排与迭代", "OK" if digest_count else "待办"))
     print(stage_line("S4", "分发层 · 审核与归档", "进行中" if digest_count else "待办"))
     print(stage_line("S5", "权限层 · 限额与无人值守", "待办"))
 
@@ -282,6 +299,12 @@ def show_help() -> int:
     print("    run.cmd collect         抓取 config/sources.json 里的 RSS 源")
     print("    run.cmd sources         检查信息源是否还活着")
     print()
+    print("  工作流（S3）")
+    print("    run.cmd pipeline --dry-run    只看要处理哪些，不发请求、不要密钥")
+    print("    run.cmd pipeline --stub       用假模型跑通链路，不花钱")
+    print("    run.cmd pipeline              真正处理（要密钥）")
+    print("    run.cmd pipeline --retry-failed  重试之前失败的条目")
+    print()
     print("  标注（S1 的核心工作，唯一不能交给 AI 的一步）")
     print("    run.cmd sample -N 20    抽 20 条，生成标注表和阅读工作纸")
     print("    run.cmd labels          看标注进度")
@@ -320,6 +343,36 @@ def count_eval_set_rows() -> int:
     if not path.exists():
         return 0
     return len([line for line in path.read_text(encoding="utf-8").splitlines() if line.strip() and not line.startswith("#")])
+
+
+def index_summary() -> dict:
+    """从索引里读出"处理到哪了"。
+
+    这一层信息不放在日志里，而是放在数据里 ——
+    日志会被滚掉，而"这条处理过没有"是必须长期记得的事实。
+    """
+    path = PROJECT_ROOT / "data" / "cache" / "index.json"
+    if not path.exists():
+        return {}
+    try:
+        items = json.loads(path.read_text(encoding="utf-8")).get("items", {})
+    except (json.JSONDecodeError, OSError):
+        return {}
+    processed = [m for m in items.values() if m.get("processed")]
+    return {
+        "total": len(items),
+        "processed": len(processed),
+        "ok": sum(1 for m in processed if m.get("status") == "ok"),
+        "failed": sum(1 for m in processed if m.get("status") != "ok"),
+        "pending": len(items) - len(processed),
+    }
+
+
+def count_results() -> int:
+    directory = PROJECT_ROOT / "out" / "results"
+    if not directory.is_dir():
+        return 0
+    return len(list(directory.glob("*.jsonl")))
 
 
 def main() -> int:

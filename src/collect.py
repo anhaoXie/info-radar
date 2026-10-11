@@ -469,19 +469,54 @@ HTML_SUFFIXES = {".html", ".htm"}
 
 
 def _split_title(text: str, fallback: str) -> tuple[str, str]:
-    """从纯文本里猜标题：第一个 # 开头的行，或第一个非空行。"""
+    """从纯文本里猜标题。
+
+    规则（按可靠性从高到低）：
+
+        1. `#` 开头的行                    —— 明确的标题标记，信它
+        2. 短、且不以句号结尾的第一行       —— 像标题，信它
+        3. 其他情况                        —— 用文件名，正文保留全文
+
+    【第 2 条为什么还要看标点】
+
+    只看长度是不够的：一个 48 字的完整句子完全在"短"的范围里，
+    但它显然是个段落而不是标题。
+
+    加一条"标题几乎不会以句号结尾"之后，误判率立刻降下来。
+    这个思路可以推广：**当一个判据只能抓住一半特征时，
+    与其把阈值调来调去，不如换一个正交的特征。**
+    长度是量的特征，结尾标点是质的特征，两者一起用比只调长度有效得多。
+
+    【第 3 条为什么存在】
+
+    .txt 文档如果只有一段很长的话，前两条都不成立。
+    这时的正确答案不是硬猜，而是退回文件名 ——
+    一个"验证乙"这样的标题，比一句被截断的长句对人有用的多。
+    **猜不出来的时候，退回到一个诚实的近似，比编一个精确的错答案强。**
+    """
     lines = text.splitlines()
+    sentence_endings = ("。", "！", "？", ".", "!", "?", "；", ";")
+
     for index, line in enumerate(lines):
         stripped = line.strip()
         if not stripped:
             continue
+
         if stripped.startswith("#"):
             title = stripped.lstrip("#").strip()
             body = "\n".join(lines[index + 1 :]).strip()
             return (title or fallback), (body or text.strip())
-        title = stripped
-        body = "\n".join(lines[index + 1 :]).strip()
-        return (title[:80], body or text.strip())
+
+        remainder = "\n".join(lines[index + 1 :]).strip()
+        looks_like_title = (
+            len(stripped) <= 60
+            and bool(remainder)
+            and not stripped.endswith(sentence_endings)
+        )
+        if looks_like_title:
+            return stripped, remainder
+
+        return fallback, text.strip()
     return fallback, text.strip()
 
 

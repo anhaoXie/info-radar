@@ -11,5 +11,5 @@
     ⑤ 权限审计  src/secrets.py, src/ledger.py, config/policy.json
 """
 
-__all__ = ["secrets", "ledger", "llm", "task"]
-__version__ = "0.1.0"
+__all__ = ["secrets", "ledger", "config", "llm", "task", "collect", "pipeline", "evaluate"]
+__version__ = "0.3.0"

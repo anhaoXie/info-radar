@@ -21,6 +21,7 @@ REM    run.cmd inbox
 REM    run.cmd sample -N 20
 REM    run.cmd labels
 REM    run.cmd compile
+REM    run.cmd pipeline
 REM    run.cmd eval -Limit 3
 REM    run.cmd ledger
 REM ============================================================
@@ -53,6 +54,7 @@ if /i "%CMD%"=="inbox"    goto :c_inbox
 if /i "%CMD%"=="sample"   goto :c_sample
 if /i "%CMD%"=="labels"   goto :c_labels
 if /i "%CMD%"=="compile"  goto :c_compile
+if /i "%CMD%"=="pipeline" goto :c_pipeline
 if /i "%CMD%"=="eval"     goto :c_eval
 if /i "%CMD%"=="sources"  goto :c_sources
 if /i "%CMD%"=="ledger"   goto :c_ledger
@@ -104,6 +106,10 @@ exit /b %ERRORLEVEL%
 
 :c_compile
 python tools\make_eval_set.py --compile %REST%
+exit /b %ERRORLEVEL%
+
+:c_pipeline
+python src\pipeline.py %REST%
 exit /b %ERRORLEVEL%
 
 :c_eval
