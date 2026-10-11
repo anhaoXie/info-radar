@@ -1007,6 +1007,38 @@ def main() -> int:
         finally:
             runner_mod.ALERT_PATH = original_alert
 
+    # "还没配密钥"不是"坏了"。
+    #
+    # 这条漏网过一次：daily 里的 pipeline 步骤把"没有密钥"记成了一次失败。
+    # 后果很具体 —— 你随手试跑三次 run.cmd daily，就会收到一个 out/ALERT.md，
+    # 上面写着"pipeline 连续失败 3 次"，而你根本没做错任何事。
+    #
+    # 假警报的代价不是打扰你一次，是你会开始无视所有警报。
+    print("\n[⑤ 权限层 · 还没配密钥不算失败]")
+
+    import src.llm as _llm_module
+
+    class _NoKeyClient:
+        def __init__(self, *args, **kwargs):
+            from src.secrets import MissingKey
+
+            raise MissingKey("测试用：没有密钥")
+
+    _real_client_class = _llm_module.LLMClient
+    _llm_module.LLMClient = _NoKeyClient
+    try:
+        runner_mod._step_pipeline(stub=False)
+        check("没配密钥时记为「跳过」而不是「失败」", False,
+              "它没有抛异常，说明走上了一条不该走的路")
+    except StepSkipped as exc:
+        check("没配密钥时记为「跳过」而不是「失败」", "密钥" in str(exc),
+              f"抛的是 StepSkipped，但信息里没提密钥：{exc}")
+    except Exception as exc:  # noqa: BLE001
+        check("没配密钥时记为「跳过」而不是「失败」", False,
+              f"抛了 {type(exc).__name__} —— 会被记成一次失败，试跑三次就误报警")
+    finally:
+        _llm_module.LLMClient = _real_client_class
+
     # ---------------------------------------------------------- 入口脚本
     print("\n[⑤ 入口脚本 · 编码、换行、引用]")
 

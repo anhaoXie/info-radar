@@ -389,6 +389,7 @@ def _step_pipeline(*, stub: bool, limit: int = 0, provider: str | None = None,
     from src.ledger import Budget, Ledger
     from src.llm import LLMClient
     from src.pipeline import Pipeline, StubClient
+    from src.secrets import MissingKey
 
     task_cfg = load_task()
     policy = load_policy()
@@ -396,9 +397,23 @@ def _step_pipeline(*, stub: bool, limit: int = 0, provider: str | None = None,
     if stub:
         client = StubClient()
     else:
-        ledger = Ledger(policy)
-        budget = Budget(policy, ledger=ledger)
-        client = LLMClient(provider, model=model, policy_cfg=policy, ledger=ledger, budget=budget)
+        try:
+            ledger = Ledger(policy)
+            budget = Budget(policy, ledger=ledger)
+            client = LLMClient(
+                provider, model=model, policy_cfg=policy, ledger=ledger, budget=budget
+            )
+        except MissingKey as exc:
+            # —— "还没配密钥"不是"坏了" ——
+            #
+            # 第一版把它记成失败。后果很具体：你随手试跑三次 `run.cmd daily`，
+            # 就会收到一个 out/ALERT.md，上面写着"pipeline 连续失败 3 次"。
+            # 而你根本没做错任何事 —— 只是还没去申请密钥。
+            #
+            # 假警报的代价不是打扰你一次，是**你会开始无视所有警报**，
+            # 于是真的那一次也被无视。
+            # （这和 S5 里"跳过 ≠ 失败"是同一条原则，这里只是漏了一处。）
+            raise StepSkipped("还没有配模型密钥 —— 跑 run.cmd status 看怎么申请") from exc
 
     pipeline = Pipeline(client, task_cfg, echo=False)
     items = pipeline.select(limit=limit)
@@ -636,7 +651,19 @@ def main() -> int:
         return 1
 
     digest_step = next((s for s in outcome["steps"] if s["name"] == "digest"), None)
-    if digest_step is not None and digest_step.get("skipped"):
+    pipeline_step = next((s for s in outcome["steps"] if s["name"] == "pipeline"), None)
+    no_key = (
+        pipeline_step is not None
+        and pipeline_step.get("skipped")
+        and "密钥" in str(pipeline_step.get("summary", ""))
+    )
+
+    if no_key:
+        # 别把"还没配密钥"说成"今天没有新内容" —— 那是两件完全不同的事，
+        # 而用户需要知道的是【下一步该做什么】。
+        print("  还没有配模型密钥，所以流水线没有真的跑。")
+        print("  跑 run.cmd status 看怎么申请（手机号注册，有免费额度）。")
+    elif digest_step is not None and digest_step.get("skipped"):
         # 这句提示是这一层存在的意义所在。
         # "什么都没有发生"必须有一个明确的回答，否则你无法区分它和"流程坏了"。
         print("  本轮没有新内容，日报没有重新生成 —— 这是正常的，不是故障。")
