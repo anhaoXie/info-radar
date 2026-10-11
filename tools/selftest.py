@@ -423,6 +423,147 @@ def main() -> int:
     capped = make_eval_set.pick_diverse(fake_items, 20, per_source_cap=3)
     check("单源上限卡死时不会死循环", len(capped) == 6, f"实际 {len(capped)}")
 
+    # ---------------------------------------------------------- ④ 分发层
+    print("\n[④ 分发层 · 日报渲染与审核解析]")
+
+    from src.archive import parse_review, render_digest, render_review
+
+    def fake_record(item_id, category, importance, title):
+        return {
+            "id": item_id,
+            "title": title,
+            "source": "测试源",
+            "status": "ok",
+            "output": {
+                "title": title,
+                "summary": f"{title} 的摘要。",
+                "category": category,
+                "importance": importance,
+                "entities": ["实体甲"],
+                "so_what": "影响。",
+                "evidence": ["原文一句"],
+            },
+            "problems": [],
+        }
+
+    digest_records = [
+        fake_record("d1", "模型与技术", 4, "条目一"),
+        fake_record("d2", "模型与技术", 3, "条目二"),
+        fake_record("d3", "其他", 5, "条目三"),
+        fake_record("d4", "我瞎编的分类", 2, "条目四"),  # 不在配置里 -> 归入"其他"
+    ]
+    digest = render_digest(digest_records, {"provider": "p", "model": "m"}, stamp="test", task_cfg=task_cfg)
+
+    for record in digest_records:
+        occurrences = digest.count(f"`{record['id']}`")
+        check(f"日报里 {record['id']} 只出现一次", occurrences == 1,
+              f"实际出现 {occurrences} 次（分组顺序没去重时会渲染两遍）")
+
+    # 日报是【先按分类分组，组内再按重要性降序】——
+    # 不是全局按重要性排。分组是为了好读，组内排序是为了先看到重要的。
+    # 我第一版测试断言写成了全局排序，所以这里把两件事分别断。
+    def section(text: str, heading: str) -> str:
+        """取出一级标题下的内容。
+
+        必须用 "\n## " 锚定，不能用 "## " ——
+        后者会匹配到 "### " 里面（第三个字符起正好是 "## "），
+        于是切出来的片段是空的，而报错信息只会说"找不到子串"，
+        完全看不出真正的原因。
+        """
+        marker = f"\n## {heading}\n"
+        if marker not in text:
+            return ""
+        return text.split(marker, 1)[1].split("\n## ", 1)[0]
+
+    tech_group = section(digest, "模型与技术")
+    other_group = section(digest, "其他")
+    check("日报里确实有模型与技术分组", "条目一" in tech_group, f"片段={tech_group[:60]!r}")
+    check("同一个分类内按重要性降序（4 排在 3 前面）",
+          tech_group.index("条目一") < tech_group.index("条目二"))
+    check("兜底分组内也按重要性降序（5 排在 2 前面）",
+          other_group.index("条目三") < other_group.index("条目四"))
+    check("分类之间按 config/task.json 的顺序，不是按重要性打乱",
+          digest.index("## 模型与技术") < digest.index("## 其他"))
+    check("分类不在允许列表里的条目被归入「其他」", "`d4`" in digest)
+    check("未审核的日报带明显标记", "未审核" in digest)
+    check("未审核的日报给出下一步命令", "review --apply test" in digest)
+
+    reviewed = {
+        "d1": {"included": True, "category": "产品发布", "importance": 5, "ambiguous": False},
+        "d2": {"included": False, "category": None, "importance": None, "ambiguous": False},
+        "d3": {"included": True, "category": None, "importance": 4, "ambiguous": False},
+        "d4": {"included": True, "category": None, "importance": None, "ambiguous": False},
+    }
+    final = render_digest(
+        digest_records, {"provider": "p", "model": "m"}, stamp="test",
+        task_cfg=task_cfg, reviewed=reviewed, final=True,
+    )
+    check("被标为不收录的条目从终版里消失", "`d2`" not in final)
+    check("终版使用人工改判后的重要性（d3 从 5 改成 4）",
+          final.index("`d1`") < final.index("`d3`"), "d1 改判为 5，应排在 d3(4) 前面")
+    check("终版标出被人工修正的条目", "人工修正" in final)
+    check("终版标记为已审核", "已审核" in final)
+
+    review_text = render_review(digest_records, {}, stamp="test", task_cfg=task_cfg)
+    with tempfile.TemporaryDirectory() as tmp:
+        rp = Path(tmp) / "review.txt"
+        rp.write_text(review_text, encoding="utf-8")
+        parsed = parse_review(rp)
+        check("审核表里的条目都能被读回来", len(parsed) == 4, f"实际 {len(parsed)}")
+        check("全部留空 = 全部通过",
+              all(d["included"] for d in parsed.values()))
+        # 分类和重要性是【预填模型的判断】，不是空的。
+        # 空的话人就得从头填一遍，审核成本会高到没人做第二次 ——
+        # 而审核一旦没人做，回流评估集这条闭环就断了。
+        check("分类列预填了模型的判断（不改 = 认可）",
+              all(d["category"] is not None for d in parsed.values()),
+              f"实际 {[d['category'] for d in parsed.values()]}")
+        check("重要性列也预填了模型的判断",
+              all(d["importance"] is not None for d in parsed.values()))
+        check("说明文字与列的实际情况一致（收录列才是留空即通过）",
+              "收录列留空就是通过" in review_text,
+              "说明说'都留空'但两列是预填的，人读了会不知道该怎么做")
+        check("审核表把模型的分类原样带上（人只需改不对的）",
+              any("模型与技术" in line for line in review_text.splitlines()))
+
+        edited = review_text.replace("d1 |  | 模型与技术 | 4", "d1 | x | 观点与分析 | 5")
+        rp.write_text(edited, encoding="utf-8")
+        parsed2 = parse_review(rp)
+        check("x 被识别为不收录", parsed2["d1"]["included"] is False)
+        check("改写的分类被读出来", parsed2["d1"]["category"] == "观点与分析",
+              f"实际 {parsed2['d1']['category']}")
+        check("改写的重要性被读出来", parsed2["d1"]["importance"] == 5)
+
+        rp.write_text(review_text.replace("d1 |  | 模型与技术 | 4", "d1 |  | ? | "), encoding="utf-8")
+        parsed3 = parse_review(rp)
+        check("问号被识别为存疑样本", parsed3["d1"]["ambiguous"] is True)
+
+    # 回流评估集：这是整套系统里唯一一处"它会自己变强"的地方，
+    # 所以它必须幂等 —— 手滑跑两次不该让评估集里多出一倍的重复样本。
+    from src import archive as archive_mod
+
+    with tempfile.TemporaryDirectory() as tmp:
+        target = Path(tmp) / "eval_set.jsonl"
+        target.write_text(
+            '{"id": "x1", "gold": {"category": "其他", "importance": 3}}\n', encoding="utf-8"
+        )
+        original_path = archive_mod.EVAL_SET_PATH
+        archive_mod.EVAL_SET_PATH = target
+        try:
+            fresh = [
+                {"id": "x1", "body": "已在评估集里", "gold": {"category": "其他", "importance": 3}},
+                {"id": "x2", "body": "新的", "gold": {"category": "产品发布", "importance": 4}},
+                {"id": "x3", "body": "也是新的", "gold": {"category": "政策监管", "importance": 5}},
+            ]
+            added = archive_mod.append_to_eval_set(fresh)
+            check("回流时已存在的 id 被跳过", added == 2, f"实际追加 {added} 条")
+            check("再次回流不会重复追加（幂等）",
+                  archive_mod.append_to_eval_set(fresh) == 0, "手滑跑两次会让评估集翻倍")
+            ids = archive_mod.load_eval_set_ids()
+            check("回流后评估集内容正确", ids == {"x1", "x2", "x3"}, f"实际 {ids}")
+        finally:
+            archive_mod.EVAL_SET_PATH = original_path
+
     # ---------------------------------------------------------- 结果
     print()
     print("=" * 68)

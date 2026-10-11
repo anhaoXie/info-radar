@@ -27,7 +27,7 @@
 | **S1** | ⓪ 评估层 —— 判据、真值、基线 | 🔄 **标注链路已通，等你放文档进 `data/inbox/`** |
 | **S2** | ① 数据层 —— 抓取、去重、缓存 | 🔄 抓取与去重已通；**实测发现 RSS 不给全文，详见 doc 02** |
 | **S3** | ③ 工作流层 —— 编排、失败隔离、断点续跑 | ✅ **代码就绪，可以 `--dry-run` / `--stub` 先看** |
-| S4 | ④ 分发 + 审核层 —— 归档、人工队列、反馈回流 | ⬜ |
+| **S4** | ④ 分发 + 审核层 —— 日报、审核队列、回流评估集 | ✅ **代码就绪，`run.cmd digest` 直接可用** |
 | S5 | ⑤ 权限 + 自动化 —— 限额、定时、大声失败 | ⬜ |
 
 随便什么时候想知道自己到哪了：`run.cmd status`
@@ -41,17 +41,26 @@
 一个需要密钥才能告诉你"我打算做什么"的工具，你只会在已经出错的时候才用它。
 
 ```powershell
-run.cmd selftest                  # 65+ 项纯逻辑自检
+run.cmd selftest                  # 100 项纯逻辑自检
 run.cmd mocktest                  # 89 项全链路自检（本地假服务端）
 run.cmd inbox                     # 导入本地文档
 run.cmd sample -N 20              # 抽样本、做标注表
 run.cmd compile                   # 编译评估集
 run.cmd pipeline --dry-run        # 看它打算处理哪些条目
 run.cmd pipeline --stub           # 用假模型把整条链路跑一遍
+run.cmd digest                    # 看日报和审核表长什么样
+run.cmd review                    # 看历史产出
 ```
 
 `--stub` 会输出明显带 `[假模型]` 标记的内容。这不是多此一举：
 **一个看起来像真结果的假结果，比一个明显的错误危险得多。**
+
+> **一个完整的闭环，现在就能走完（不需要密钥）：**
+> ```
+> 写文档 → inbox → pipeline --stub → digest → 填审核表 → review --apply
+> ```
+> 走完之后，`eval/eval_set.jsonl` 里会多出带 `label_origin: "review"` 的样本。
+> 那就是"这套系统会自己变强"的样子。
 
 ---
 
@@ -149,7 +158,7 @@ info-radar/
 │   ├─ evaluate.py           ⓪ 评估：基线、回归、人工审核表
 │   ├─ collect.py            ① 数据层：RSS 抓取 + 本地投喂 + 两级去重
 │   ├─ pipeline.py           ③ 工作流层：编排 / 失败隔离 / 断点续跑
-│   └─ archive.py            ④ 分发层                          （S4）
+│   └─ archive.py            ④ 分发层：日报 / 审核队列 / 回流评估集
 │
 ├─ tools/
 │   ├─ probe.py              探测与自检：把"我以为"换成"服务端说"
@@ -184,8 +193,8 @@ info-radar/
 ```powershell
 # ---- 先跑这三个：不联网、不花钱 ----
 run.cmd status                        # 我走到哪了
-run.cmd selftest                      # 离线自检纯逻辑（65 项，毫秒级）
-run.cmd mocktest                      # 全链路自检：本地假服务端验证真客户端（68 项）
+run.cmd selftest                      # 离线自检纯逻辑（100 项，毫秒级）
+run.cmd mocktest                      # 全链路自检：本地假服务端验证真客户端（89 项）
 
 # ---- 数据与标注（S1 的核心工作）----
 run.cmd inbox                         # 导入 data/inbox/ 里的本地文档
@@ -201,6 +210,12 @@ run.cmd pipeline --stub               # 用假模型跑通链路，不花钱
 run.cmd pipeline                      # 真正处理（要密钥）
 run.cmd pipeline --retry-failed       # 重试之前失败的条目
 
+# ---- 分发与审核（S4）----
+run.cmd digest                        # 从最新一轮结果生成日报 + 审核表
+run.cmd review                        # 看历史产出
+run.cmd review --apply <时间戳>        # 应用审核：生成终版 + 回流评估集
+run.cmd review --stats                # 评估集来源统计
+
 # ---- 模型与评估（要联网、要密钥）----
 run.cmd doctor                        # 环境自检
 run.cmd probe                         # 探测模型真实可用性
@@ -214,8 +229,8 @@ run.cmd ledger                        # 今天花了多少、慢不慢、哪一�
 
 | | 测什么 | 碰网络吗 | 多久 |
 |---|---|---|---|
-| `selftest` | 纯逻辑：解析、校验、去重、预算、脱敏 | 不碰 | 毫秒 |
-| `mocktest` | 全链路：真的发 HTTP、真的重试、真的写账本、真的算指标 | 只碰 `127.0.0.1` | 几秒 |
+| `selftest` | 纯逻辑：解析、校验、去重、预算、脱敏、日报渲染、审核解析 | 不碰 | 毫秒 |
+| `mocktest` | 全链路：真的发 HTTP、真的重试、真的写账本、真的算指标、真的跑流水线 | 只碰 `127.0.0.1` | 几秒 |
 
 `mocktest` 会在本地起一个**假的 OpenAI 服务端**，然后按命令让它失败：
 返回 500、返回 429、返回 401、返回不是 JSON 的东西、返回没有 `choices` 的空壳。

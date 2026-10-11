@@ -22,6 +22,8 @@ REM    run.cmd sample -N 20
 REM    run.cmd labels
 REM    run.cmd compile
 REM    run.cmd pipeline
+REM    run.cmd digest
+REM    run.cmd review --apply <stamp>
 REM    run.cmd eval -Limit 3
 REM    run.cmd ledger
 REM ============================================================
@@ -55,6 +57,8 @@ if /i "%CMD%"=="sample"   goto :c_sample
 if /i "%CMD%"=="labels"   goto :c_labels
 if /i "%CMD%"=="compile"  goto :c_compile
 if /i "%CMD%"=="pipeline" goto :c_pipeline
+if /i "%CMD%"=="digest"   goto :c_digest
+if /i "%CMD%"=="review"   goto :c_review
 if /i "%CMD%"=="eval"     goto :c_eval
 if /i "%CMD%"=="sources"  goto :c_sources
 if /i "%CMD%"=="ledger"   goto :c_ledger
@@ -110,6 +114,18 @@ exit /b %ERRORLEVEL%
 
 :c_pipeline
 python src\pipeline.py %REST%
+exit /b %ERRORLEVEL%
+
+:c_digest
+python src\archive.py --digest %REST%
+exit /b %ERRORLEVEL%
+
+:c_review
+if not "%REST%"=="" goto :c_review_args
+python src\archive.py --list
+exit /b %ERRORLEVEL%
+:c_review_args
+python src\archive.py %REST%
 exit /b %ERRORLEVEL%
 
 :c_eval

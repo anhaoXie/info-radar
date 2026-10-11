@@ -191,7 +191,32 @@ def show_progress() -> int:
     print(f"       历史产出 {count_results()} 份 out/results/")
 
     digest_count = count_files("out/digests")
-    print(stage_line("S4", "分发层 · 审核与归档", "进行中" if digest_count else "待办"))
+    final_count = len(list((PROJECT_ROOT / "out" / "digests").glob("*-final.md"))) if digest_count else 0
+    review_count = count_files("out/review")
+    if final_count:
+        s4_status = "OK"
+    elif digest_count:
+        s4_status = "待审核"
+    else:
+        s4_status = "待办"
+    print(stage_line("S4", "分发层 · 审核与归档", s4_status))
+    if digest_count:
+        print(f"       日报 {digest_count} 份（终版 {final_count} 份），审核表 {review_count} 份")
+        if digest_count > final_count:
+            newest = sorted((PROJECT_ROOT / "out" / "digests").glob("*.md"),
+                            key=lambda p: p.stat().st_mtime, reverse=True)
+            pending = next((p for p in newest if not p.stem.endswith("-final")), None)
+            if pending:
+                print(f"       待审核：out/review/{pending.stem}.txt")
+                print(f"       填完跑：run.cmd review --apply {pending.stem}")
+    else:
+        print("       还没有日报。跑 run.cmd pipeline 之后再 run.cmd digest")
+
+    eval_origin = eval_set_origins()
+    if eval_origin:
+        parts = "，".join(f"{k} {v}" for k, v in eval_origin.items())
+        print(f"       评估集来源：{parts}")
+
     print(stage_line("S5", "权限层 · 限额与无人值守", "待办"))
 
     print()
@@ -305,6 +330,12 @@ def show_help() -> int:
     print("    run.cmd pipeline              真正处理（要密钥）")
     print("    run.cmd pipeline --retry-failed  重试之前失败的条目")
     print()
+    print("  分发与审核（S4）")
+    print("    run.cmd digest                从最新一轮结果生成日报 + 审核表")
+    print("    run.cmd review                看历史产出")
+    print("    run.cmd review --apply <时间戳>  应用审核：生成终版 + 回流评估集")
+    print("    run.cmd review --stats        评估集来源统计")
+    print()
     print("  标注（S1 的核心工作，唯一不能交给 AI 的一步）")
     print("    run.cmd sample -N 20    抽 20 条，生成标注表和阅读工作纸")
     print("    run.cmd labels          看标注进度")
@@ -373,6 +404,30 @@ def count_results() -> int:
     if not directory.is_dir():
         return 0
     return len(list(directory.glob("*.jsonl")))
+
+
+def eval_set_origins() -> dict:
+    """评估集里每条样本是怎么来的。
+
+    分开统计"手工标注"和"审核回流"是有意义的：
+    如果审核回流的样本上准确率明显更高，那说明的不是模型好，
+    是你审得不够认真 —— 因为那些"真值"其实是模型自己的答案。
+    """
+    path = PROJECT_ROOT / "eval" / "eval_set.jsonl"
+    if not path.exists():
+        return {}
+    counts: dict[str, int] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        name = "占位数据" if row.get("_placeholder") else str(row.get("label_origin") or "手工标注")
+        counts[name] = counts.get(name, 0) + 1
+    return counts
 
 
 def main() -> int:
