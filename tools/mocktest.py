@@ -44,6 +44,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "tools"))
 import src.llm as llm_module  # noqa: E402
 import src.collect as collect_mod  # noqa: E402
 from probe import suggest_model  # noqa: E402
+from src.pipeline import StubClient  # noqa: E402
 from src.ledger import Budget, BudgetExceeded, Ledger  # noqa: E402
 from src.llm import FatalLLMError, LLMClient, RetryableLLMError  # noqa: E402
 
@@ -724,6 +725,38 @@ def main() -> int:
                   abs(eval_metrics["cost_total_cny"] - 0.0006) < 1e-9,
                   f"实际 {eval_metrics['cost_total_cny']}")
 
+            # 占位样本不能计入准确率。
+            # 它们是合成内容（"甲实验室""乙公司"），拿真实文章去测，
+            # 模型永远不可能命中它们 —— 算进分母只会得到一个被凭空拉低的假数字。
+            # 而一个假数字比没有数字更坏：你会照着它去优化。
+            mixed_records = [
+                {"id": "ph1", "placeholder": True, "format_ok": True, "status": "ok",
+                 "category_correct": False, "importance_error": 1, "latency_ms": 1,
+                 "cost_cny": 0.0, "cost_known": True, "prompt_tokens": 1, "completion_tokens": 1},
+                {"id": "r1", "placeholder": False, "format_ok": True, "status": "ok",
+                 "category_correct": True, "importance_error": 0, "latency_ms": 1,
+                 "cost_cny": 0.0, "cost_known": True, "prompt_tokens": 1, "completion_tokens": 1},
+                {"id": "r2", "placeholder": False, "format_ok": True, "status": "ok",
+                 "category_correct": False, "importance_error": 2, "latency_ms": 1,
+                 "cost_cny": 0.0, "cost_known": True, "prompt_tokens": 1, "completion_tokens": 1},
+            ]
+            mixed_metrics = summarize(
+                mixed_records,
+                client=StubClient(),
+                task_cfg=task_cfg,
+                set_path=PROJECT_ROOT / "eval" / "eval_set.jsonl",
+                has_placeholder=True,
+            )
+            check("占位样本被单独计数", mixed_metrics["placeholder_count"] == 1,
+                  f"实际 {mixed_metrics['placeholder_count']}")
+            check("真正计分的样本数不含占位", mixed_metrics["scored"] == 2,
+                  f"实际 {mixed_metrics['scored']}")
+            check("准确率只按非占位样本算（1/2 = 50%，不是 1/3）",
+                  mixed_metrics["category_accuracy"] == 0.5,
+                  f"实际 {mixed_metrics['category_accuracy']} —— 把合成条目算进分母会凭空拉低它")
+            check("格式合规率仍然算全部（格式对错和内容真假无关）",
+                  mixed_metrics["format_ok"] == 3, f"实际 {mixed_metrics['format_ok']}")
+
             review = _render_review(eval_records, eval_metrics, "test")
             check("审核表列出了每一条", all(f"`{r['id']}`" in review for r in eval_records))
             check("审核表包含三个必答问题", review.count("原文没说过的话吗") == 3,
@@ -898,7 +931,6 @@ def main() -> int:
 
             # ---- 假模型
             print("\n[③ 工作流层 · 没有密钥时的空转模式]")
-            from src.pipeline import StubClient
 
             stub_dir = Path(tmp) / "wf_stub"
             raw_dir_s, index_path_s, results_dir_s = make_env(stub_dir, {"s1": "一段正文。"})

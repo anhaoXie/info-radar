@@ -108,7 +108,16 @@ def run_evaluation(
         if echo:
             print(f"[{index:>3}/{len(rows)}] {item_id:<8} {str(item.get('title', ''))[:38]}")
 
-        record: dict = {"id": item_id, "title": item.get("title", ""), "gold": gold}
+        record: dict = {
+            "id": item_id,
+            "title": item.get("title", ""),
+            "gold": gold,
+            # 占位样本只用来验证链路通不通，不能计入准确率。
+            # 它们是合成内容（"甲实验室""乙公司"），
+            # 拿真实文章去测，模型永远不可能"命中"它们 ——
+            # 把它们算进分母，只会得到一个被凭空拉低的假数字。
+            "placeholder": bool(item.get("_placeholder")),
+        }
 
         try:
             messages = task_mod.build_messages(task_cfg, item)
@@ -199,10 +208,23 @@ def summarize(
 ) -> dict:
     """把逐条记录汇成指标。纯计算，不联网，所以能被离线测试。"""
     total = len(records)
+
+    # 准确率只在【非占位】样本上算。
+    #
+    # 占位样本（"甲实验室""乙公司"那些合成条目）是用来验证链路通不通的，
+    # 拿真实文章去测，模型永远不可能命中它们。
+    # 把它们算进分母，只会得到一个被凭空拉低的假数字 ——
+    # 而一个假数字比没有数字更坏：你会照着它去优化。
+    #
+    # 格式合规率仍然算全部：无论输入是真是假，
+    # "模型有没有按结构输出"都是一个有意义的问题。
+    scored = [r for r in records if not r.get("placeholder")]
+    placeholder_count = total - len(scored)
+
     format_ok_count = sum(1 for r in records if r.get("format_ok"))
-    judged = [r for r in records if r.get("category_correct") is not None]
+    judged = [r for r in scored if r.get("category_correct") is not None]
     correct = sum(1 for r in judged if r["category_correct"])
-    importance_errors = [r["importance_error"] for r in records if r.get("importance_error") is not None]
+    importance_errors = [r["importance_error"] for r in scored if r.get("importance_error") is not None]
     latencies = [int(r["latency_ms"]) for r in records if r.get("latency_ms")]
     costs = [r.get("cost_cny") or 0.0 for r in records]
     ok_records = [r for r in records if r.get("status") == "ok"]
@@ -214,6 +236,8 @@ def summarize(
 
     return {
         "total": total,
+        "scored": len(scored),
+        "placeholder_count": placeholder_count,
         "format_ok": format_ok_count,
         "format_ok_rate": round(format_ok_count / total, 4) if total else 0.0,
         "category_judged": len(judged),
@@ -359,9 +383,15 @@ def main() -> int:
         print("     结果文件里记着 truncated=true —— 别在两周后把这一份当成完整基线。")
         print()
     print(f"  样本数          {metrics['total']}")
+    if metrics.get("placeholder_count"):
+        print(f"    其中占位样本  {metrics['placeholder_count']} 条（合成内容，只用来验证链路）")
+        print(f"    真正计分的    {metrics['scored']} 条  <-- 准确率只按这些算")
     print(f"  格式合规率      {metrics['format_ok']}/{metrics['total']}  =  {metrics['format_ok_rate'] * 100:.1f}%")
     if accuracy is None:
-        print("  分类准确率      （没有真值，无法计算 —— 请先标注 gold.category）")
+        if metrics.get("scored", 0) == 0 and metrics.get("placeholder_count"):
+            print("  分类准确率      （没有可计分的样本 —— 上面那些是合成内容，算进去只会得到一个假数字）")
+        else:
+            print("  分类准确率      （没有真值，无法计算 —— 请先标注 gold.category）")
     else:
         print(f"  分类准确率      {metrics['category_correct']}/{metrics['category_judged']}  =  "
               f"{accuracy * 100:.1f}%   <-- 你唯一的『好坏』判据")
