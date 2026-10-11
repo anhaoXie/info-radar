@@ -439,9 +439,38 @@ def load_sources_state() -> dict:
     if not path.exists():
         return {}
     try:
-        return json.loads(path.read_text(encoding="utf-8")).get("sources", {})
+        return json.loads(read_text_smart(path)).get("sources", {})
     except (json.JSONDecodeError, OSError):
         return {}
+
+
+def find_dead_sources(threshold: int = 2) -> list[tuple[str, int, str]]:
+    """列出【连续失败到值得处理】的信息源。
+
+    【为什么这件事必须在默认视图里说】
+
+    这件事以前只在 status --full 里出现，而用户被反复告知的是跑 run.cmd status。
+    于是最坏的情况是这样：
+
+        极客公园的 RSS 死了 → collect 记下失败 → 日报照常生成
+        → 你每天照样收到日报，只是悄悄少了极客公园那一块
+        → 三个月后你才发现，而中间那些内容永远补不回来
+
+    **"少了一个源"和"今天没新闻"在表面上完全一样。**
+    这正是最难发现的一类故障：因为一切看起来都正常。
+
+    阈值是连续 2 次，不是 1 次：一次失败常常只是抖动。
+    阈值放太低，你会习惯性地无视这块提示 —— 那它就等于不存在。
+    """
+    dead: list[tuple[str, int, str]] = []
+    for name, info in (load_sources_state() or {}).items():
+        if info.get("ok"):
+            continue
+        streak = int(info.get("consecutive_failures") or 0)
+        if streak >= threshold:
+            first_line = str(info.get("error") or "").splitlines()
+            dead.append((name, streak, first_line[0][:70] if first_line else ""))
+    return dead
 
 
 def eval_set_state() -> str:
@@ -603,10 +632,39 @@ def show_status_plain() -> int:
     result_count = count_results()
     digest_count = count_files("out/digests")
 
+    # ---- 有源死了，必须在【默认视图】里说
+    #
+    # 这件事以前只在 status --full 里出现，而用户被反复告知的是跑 run.cmd status。
+    # 于是最坏的情况是这样：
+    #
+    #   极客公园的 RSS 死了  →  collect 记下失败  →  日报照常生成
+    #   →  你每天照样收到日报，只是悄悄少了极客公园那一块
+    #   →  三个月后你才发现，而中间那些内容你永远补不回来
+    #
+    # **"少了一个源"和"今天没新闻"在表面上完全一样。**
+    # 这正是最难发现的一类故障：因为一切看起来都正常。
+    dead_sources = find_dead_sources()
+
     print()
     print("=" * 66)
     print("  你的行业情报助手")
     print("=" * 66)
+
+    # 放在最前面：它比"你该做什么"更紧急。
+    # 一条死掉的源会让你【每天少收一块内容，而日报看起来完全正常】。
+    if dead_sources:
+        print()
+        print("  【注意】有信息源抓不到了 —— 这不是故障，但需要你处理")
+        for name, streak, error in dead_sources:
+            print(f"    [{name}]  连续失败 {streak} 次")
+            if error:
+                print(f"          {error}")
+        print()
+        print("    影响：这几家的内容不会再出现在你的日报里。")
+        print("          日报本身照常生成，所以你不会感觉到少了什么 —— 这正是它危险的地方。")
+        print()
+        print("    怎么办：run.cmd sources        看看是网络问题还是源真的没了")
+        print("            然后打开 config/sources.json，把它的 enabled 改成 false")
 
     # ---------------- 已经做好了什么
     print()

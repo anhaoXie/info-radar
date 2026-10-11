@@ -1283,6 +1283,56 @@ def main() -> int:
     check("main_guard 说明改配置不会有副作用", "副作用" in guard_out)
     check("main_guard 的输出里没有 Python 报错栈", "Traceback" not in guard_out)
 
+    # ---- 死掉的信息源必须在【默认视图】里说
+    #
+    # "少了一个源"和"今天没新闻"在表面上完全一样：
+    # 日报照常生成，只是悄悄少了一块，而你不会感觉到。
+    # 这正是最难发现的一类故障。它以前只在 status --full 里出现，
+    # 而用户被反复告知的是跑 run.cmd status。
+    print("\n[⑤ 维护 · 死掉的信息源要说出来]")
+
+    import status as status_mod
+
+    with tempfile.TemporaryDirectory() as tmp:
+        fake_root = Path(tmp)
+        (fake_root / "data" / "cache").mkdir(parents=True)
+        (fake_root / "data" / "cache" / "sources-state.json").write_text(
+            json.dumps(
+                {
+                    "sources": {
+                        "死掉的源": {"ok": False, "consecutive_failures": 5,
+                                     "error": "ConnectionError: 连接被拒绝\n更多细节"},
+                        "抖了一下的源": {"ok": False, "consecutive_failures": 1, "error": "Timeout"},
+                        "好的源": {"ok": True, "consecutive_failures": 0, "error": None},
+                    }
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        real_status_root = status_mod.PROJECT_ROOT
+        status_mod.PROJECT_ROOT = fake_root
+        try:
+            dead = status_mod.find_dead_sources()
+            dead_at_one = status_mod.find_dead_sources(threshold=1)
+            empty_root = Path(tmp) / "空空如也"
+            empty_root.mkdir()
+            status_mod.PROJECT_ROOT = empty_root
+            dead_no_file = status_mod.find_dead_sources()
+        finally:
+            status_mod.PROJECT_ROOT = real_status_root
+
+        check("连续失败到阈值的源会被列出来",
+              [n for n, _, _ in dead] == ["死掉的源"], f"实际 {dead}")
+        check("只失败一次的源不报（一次常常只是抖动）",
+              "抖了一下的源" not in [n for n, _, _ in dead],
+              "阈值太低，你会习惯性地无视这块提示")
+        check("正常的源不会被误报", "好的源" not in [n for n, _, _ in dead_at_one])
+        check("错误信息只取第一行", bool(dead) and "\n" not in dead[0][2] and "拒绝" in dead[0][2],
+              f"实际 {dead}")
+        check("没有状态文件时不会崩", dead_no_file == [])
+
     # ---------------------------------------------------------- 入口脚本
     print("\n[⑤ 入口脚本 · 编码、换行、引用]")
 
