@@ -55,7 +55,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config import load_task, read_text_smart  # noqa: E402
+from src.config import load_task, read_text_smart, main_guard  # noqa: E402
 from src.secrets import PROJECT_ROOT as ROOT  # noqa: E402
 
 RESULTS_DIR = ROOT / "out" / "results"
@@ -736,4 +736,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main_guard(main)())

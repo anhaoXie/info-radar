@@ -25,7 +25,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config import load_policy, load_providers, save_json  # noqa: E402
+from src.config import load_policy, load_providers, save_json, main_guard  # noqa: E402
 from src.llm import LLMClient  # noqa: E402
 from src.secrets import ENV_PATH, PROJECT_ROOT as ROOT, fingerprint, get_key, loaded_secret_count  # noqa: E402
 
@@ -469,7 +469,7 @@ def main() -> int:
 
 if __name__ == "__main__":
     try:
-        raise SystemExit(main())
+        raise SystemExit(main_guard(main)())
     except KeyboardInterrupt:
         print("\n[中断]\n")
         raise SystemExit(130)

@@ -62,7 +62,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src import task as task_mod  # noqa: E402
-from src.config import load_policy, load_task  # noqa: E402
+from src.config import load_policy, load_task, main_guard  # noqa: E402
 from src.ledger import Budget, BudgetExceeded, Ledger  # noqa: E402
 from src.llm import LLMClient, LLMError, LLMResult  # noqa: E402
 from src.secrets import PROJECT_ROOT as ROOT  # noqa: E402
@@ -545,7 +545,7 @@ def main() -> int:
 
 if __name__ == "__main__":
     try:
-        raise SystemExit(main())
+        raise SystemExit(main_guard(main)())
     except KeyboardInterrupt:
         print("\n[中断] 已处理完的条目标记已经落盘，重跑不会重复花钱。\n")
         raise SystemExit(130)

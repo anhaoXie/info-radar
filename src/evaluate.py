@@ -34,7 +34,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src import task as task_mod  # noqa: E402
-from src.config import load_policy, load_task, read_text_smart  # noqa: E402
+from src.config import load_policy, load_task, read_text_smart, main_guard  # noqa: E402
 from src.ledger import Budget, BudgetExceeded, Ledger  # noqa: E402
 from src.llm import FatalLLMError, LLMClient, LLMError  # noqa: E402
 
@@ -514,7 +514,7 @@ def _render_review(records: list[dict], metrics: dict, stamp: str) -> str:
 
 if __name__ == "__main__":
     try:
-        raise SystemExit(main())
+        raise SystemExit(main_guard(main)())
     except FatalLLMError as exc:
         print(f"\n[致命错误] {exc}\n")
         raise SystemExit(2)

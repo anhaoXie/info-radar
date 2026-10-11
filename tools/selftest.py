@@ -27,7 +27,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "tools"))
 import make_eval_set  # noqa: E402
 from src import collect as collect_mod  # noqa: E402
 from src import task as task_mod  # noqa: E402
-from src.config import load_policy, load_task  # noqa: E402
+from src.config import load_policy, load_task, main_guard  # noqa: E402
 from src.ledger import Budget, BudgetExceeded, Ledger  # noqa: E402
 from src.llm import FatalLLMError, LLMClient  # noqa: E402
 from src.secrets import fingerprint, mask, _register  # noqa: E402
@@ -1096,6 +1096,60 @@ def main() -> int:
     check("实际存在的模块都写进了 README 目录树", not not_in_tree,
           f"漏了：{not_in_tree}")
 
+    # ---- 配置写坏了，要说人话
+    #
+    # S3 阶段你会反复手改 config/task.json 的 few_shot。
+    # 一次逗号手滑，原来会得到一段 20 行的英文报错栈 —— 你会以为"系统坏了"，
+    # 而实际上只是少了个引号。
+    #
+    # 更糟的是 selftest 当时也崩了：那是你系统出问题时唯一会去跑的工具。
+    # **你用来排查故障的工具，自己不能先崩。**
+    print("\n[⑤ 权限层 · 配置写坏了要说人话]")
+
+    from src import config as config_mod
+
+    with tempfile.TemporaryDirectory() as tmp:
+        real_config_dir = config_mod.CONFIG_DIR
+        config_mod.CONFIG_DIR = Path(tmp)
+        try:
+            (Path(tmp) / "broken.json").write_text('{"a": 1,, "b": 2}', encoding="utf-8")
+
+            try:
+                config_mod.load_json("broken")
+                check("配置写坏时抛的是 ConfigError", False, "什么都没抛")
+            except config_mod.ConfigError as exc:
+                text = str(exc)
+                check("配置写坏时抛的是 ConfigError", True)
+                check("错误信息里带行号列号", "第 1 行第" in text, f"实际 {text[:70]!r}")
+                check("错误信息里带出错那一行的原文", '{"a": 1,, "b": 2}' in text,
+                      "只说'第 1 行'还得用户自己去找")
+                check("错误信息里带指针（^）", "^" in text)
+            except Exception as exc:  # noqa: BLE001
+                check("配置写坏时抛的是 ConfigError", False, f"抛了 {type(exc).__name__}")
+
+            try:
+                config_mod.load_json("根本不存在")
+                check("配置缺失时抛的也是 ConfigError", False, "什么都没抛")
+            except config_mod.ConfigError:
+                check("配置缺失时抛的也是 ConfigError", True)
+            except Exception as exc:  # noqa: BLE001
+                check("配置缺失时抛的也是 ConfigError", False, f"抛了 {type(exc).__name__}")
+        finally:
+            config_mod.CONFIG_DIR = real_config_dir
+
+    def _config_boom():
+        raise config_mod.ConfigError("测试用的配置错误")
+
+    guard_buf = io.StringIO()
+    with contextlib.redirect_stdout(guard_buf):
+        guard_code = config_mod.main_guard(_config_boom)()
+    guard_out = guard_buf.getvalue()
+    check("main_guard 返回非零退出码", guard_code == 2, f"实际 {guard_code}")
+    check("main_guard 把原始信息打了出来", "测试用的配置错误" in guard_out)
+    check("main_guard 告诉用户这是 JSON 手滑", "JSON" in guard_out)
+    check("main_guard 说明改配置不会有副作用", "副作用" in guard_out)
+    check("main_guard 的输出里没有 Python 报错栈", "Traceback" not in guard_out)
+
     # ---------------------------------------------------------- 入口脚本
     print("\n[⑤ 入口脚本 · 编码、换行、引用]")
 
@@ -1145,4 +1199,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main_guard(main)())

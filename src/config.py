@@ -19,14 +19,66 @@ def config_path(name: str) -> Path:
     return CONFIG_DIR / (name if name.endswith(".json") else f"{name}.json")
 
 
+class ConfigError(Exception):
+    """配置文件有问题。
+
+    单独定义一种异常，是为了让它在最外层被翻译成一句人话，
+    而不是变成一段 Python 报错栈。
+
+    为什么值得这么做：S3 阶段你会反复手改 config/task.json 的 few_shot。
+    一次逗号手滑，原来会得到 20 行英文栈 —— 你会以为"系统坏了"，
+    而实际上只是少了个引号，而且【改错配置文件不会有任何副作用】，
+    因为读不进来就什么都不会执行。
+    """
+
+
 def load_json(name: str) -> dict:
     path = config_path(name)
     if not path.exists():
-        raise FileNotFoundError(f"找不到配置文件：{path}")
+        raise ConfigError(f"找不到配置文件：{path}")
+    text = read_text_smart(path)
     try:
-        return json.loads(read_text_smart(path))
+        return json.loads(text)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"配置文件不是合法 JSON：{path}\n  {exc}") from exc
+        # 光说"第 46 行"还得自己去找。把那一行和指针一起打出来。
+        lines = text.splitlines()
+        bad_line = lines[exc.lineno - 1] if 0 < exc.lineno <= len(lines) else ""
+        pointer = " " * max(0, exc.colno - 1) + "^"
+        raise ConfigError(
+            f"{path}\n"
+            f"  第 {exc.lineno} 行第 {exc.colno} 列：{exc.msg}\n"
+            f"\n"
+            f"  {bad_line}\n"
+            f"  {pointer}\n"
+        ) from exc
+
+
+def main_guard(fn):
+    """把一个"配置读不进来"的异常，翻译成用户看得懂的三句话。
+
+    不做这件事的后果很具体：用户照着自己的学习路线去改配置，
+    手滑一次，得到一段英文报错栈 —— 他会认为"我把系统弄坏了"，
+    然后不敢再改配置。而整套系统的设计前提，恰恰是
+    **改配置是安全的、便宜的、应该经常做的**。
+    """
+
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except ConfigError as exc:
+            print()
+            print("  " + "=" * 64)
+            print("  配置文件有问题")
+            print("  " + "=" * 64)
+            print()
+            for line in str(exc).splitlines():
+                print(f"  {line}" if line.strip() else "")
+            print("  配置文件是 JSON。最常见的手滑：多一个逗号、少一个引号、少一个括号。")
+            print("  改完再跑一次就行 —— 配置读不进来时什么都不会执行，不会有副作用。")
+            print()
+            return 2
+
+    return wrapper
 
 
 def read_text_smart(path: Path) -> str:

@@ -56,7 +56,7 @@ from typing import Callable
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config import load_policy, load_task  # noqa: E402
+from src.config import load_policy, load_task, main_guard  # noqa: E402
 from src.secrets import PROJECT_ROOT as ROOT  # noqa: E402
 
 HEALTH_PATH = ROOT / "data" / "cache" / "health.json"
@@ -676,7 +676,7 @@ def main() -> int:
 
 if __name__ == "__main__":
     try:
-        raise SystemExit(main())
+        raise SystemExit(main_guard(main)())
     except KeyboardInterrupt:
         print("\n[中断] 已完成的步骤记录已经落盘。\n")
         raise SystemExit(130)

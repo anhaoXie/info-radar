@@ -49,7 +49,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config import load_policy, load_sources  # noqa: E402
+from src.config import load_policy, load_sources, main_guard  # noqa: E402
 
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
 CACHE_DIR = PROJECT_ROOT / "data" / "cache"
@@ -788,4 +788,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main_guard(main)())

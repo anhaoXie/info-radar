@@ -23,7 +23,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # 读用户会手工编辑的文件（labels.txt、eval_set.jsonl）必须用宽容版 ——
 # 中文 Windows 的记事本默认存 GBK，用 utf-8 硬读会直接抛栈。
 # 而"标完之后跑 run.cmd status 看进度"恰好是用户会立刻做的那件事。
-from src.config import read_text_smart  # noqa: E402
+from src.config import read_text_smart, main_guard  # noqa: E402
 
 WIDTH = 64
 
@@ -770,4 +770,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main_guard(main)())
