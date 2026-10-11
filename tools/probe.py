@@ -72,6 +72,51 @@ def suggest_model(models: list[str], configured: str | None) -> tuple[str | None
     return choice, False
 
 
+def check_reachable(cfg: dict) -> tuple[bool, str]:
+    """不带密钥打一次接口，只看【地址通不通】。
+
+    期望的结果是 401 / 403 —— 地址对，只是没有有效密钥。
+    404 说明地址写错了；连不上说明是网络问题。
+
+    **把"网络不通"和"密钥不对"分开，是这里唯一的目的。**
+
+    这两件事的解法完全不同：
+        网络不通  → 查 VPN、代理、公司防火墙
+        密钥不对  → 查 .env 那一行
+    而它们的表象完全一样："这东西用不了"。用户按错的怀疑方向去查，
+    浪费的是最不该浪费的东西 —— 对一个新系统的耐心。
+    """
+    import requests
+
+    url = str(cfg.get("base_url", "")).rstrip("/") + "/chat/completions"
+    if not cfg.get("base_url"):
+        return False, "配置里没写 base_url"
+    try:
+        response = requests.post(
+            url,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer sk-this-is-not-a-real-key",
+            },
+            json={
+                "model": "probe",
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 1,
+            },
+            timeout=20,
+        )
+    except requests.RequestException as exc:
+        return False, f"{type(exc).__name__}: {str(exc)[:70]}"
+
+    if response.status_code in (401, 403):
+        return True, "可达（地址对，只是没有有效密钥）"
+    if response.status_code == 404:
+        return False, "地址可能写错了（服务端返回 404）"
+    if response.status_code < 500:
+        return True, f"可达（返回 {response.status_code}）"
+    return True, f"可达，但服务端出错（{response.status_code}）"
+
+
 def probe_provider(name: str, cfg: dict, policy: dict) -> dict:
     env_name = cfg.get("api_key_env", "")
     key = get_key(env_name, required=False)
@@ -84,6 +129,18 @@ def probe_provider(name: str, cfg: dict, policy: dict) -> dict:
     }
     if not key:
         result["status"] = "no_key"
+        # 没有密钥，但【连通性】仍然可以测 —— 而且这恰好是你之后一定会问的问题：
+        #
+        #     "用不了，是我的网络连不上，还是我的密钥不对？"
+        #
+        # 这两件事的解法完全不同（一个去查 VPN/代理，一个去查 .env），
+        # 而它们的表象一模一样。现在先把答案准备好，省得到时候分不清。
+        #
+        # 顺带一提：这一步以前根本不存在，probe 在没有密钥时连一个请求都不发。
+        # 结果是"探测"这个名字名不副实 —— 它什么都没探。
+        reachable, note = check_reachable(cfg)
+        result["reachable"] = reachable
+        result["reachable_note"] = note
         return result
 
     result["key_fingerprint"] = fingerprint(key)
@@ -136,6 +193,12 @@ def print_probe_report(results: list[dict]) -> None:
 
         if item["status"] == "no_key":
             print(f"  跳过：.env 里没有 {item['env']}")
+            if item.get("reachable"):
+                print(f"  连通性     {item.get('reachable_note', '可达')}")
+            else:
+                print(f"  连通性     连不上 —— {item.get('reachable_note', '')}")
+                print("            这和密钥无关。先检查网络、VPN 或代理；")
+                print("            如果你不用这家，可以忽略这一行。")
             continue
 
         print(f"  密钥       {item.get('key_fingerprint', '(未知)')}  来自 {item['env']}")
@@ -188,12 +251,34 @@ def print_probe_report(results: list[dict]) -> None:
         print("       （顺便把 price_cny_per_1m 填上，成本才有可能被算出来）")
         print("    2) 跑 python src/evaluate.py --limit 3")
     else:
-        print("  没有可用的厂商。")
-        print("  请检查：")
-        print("    a) .env 里是否填了 key（文件名就叫 .env，不是 .env.txt）")
-        print("    b) key 是否抄全、有没有多余空格")
-        print("    c) 账号是否已实名/欠费")
-        print(f"  当前 .env 路径：{ENV_PATH}")
+        # "用不了"有两种完全不同的原因，解法也完全不同。
+        # 先看是不是根本没有密钥，再看是不是网络到不了 ——
+        # 把这两种情况混成一句"没有可用的厂商"，用户会去查错的地方。
+        reachable_ones = [r for r in results if r.get("reachable")]
+        unreachable = [r for r in results if r["status"] == "no_key" and not r.get("reachable")]
+
+        if not any(r.get("has_key") for r in results):
+            print("  没有可用的厂商 —— 因为你还没有配任何密钥。")
+            print()
+            print(f"  顺便替你测了连通性：{len(reachable_ones)}/{len(results)} 家能连上。")
+            if unreachable:
+                print(f"  连不上的：{'、'.join(r['provider'] for r in unreachable)}")
+                print("            这和密钥无关，是网络到不了。检查 VPN / 代理 / 防火墙，")
+                print("            或者干脆选一家能连上的。")
+            print()
+            print("  下一步：")
+            print("    1) 打开 config/providers.json 挑一家（推荐 zhipu），把它的 console_url 复制到浏览器")
+            print("    2) 注册并申请密钥，存成 .env（照着 run.cmd status 里的步骤）")
+            print("    3) 再跑一次 run.cmd probe")
+            print(f"  当前 .env 路径：{ENV_PATH}")
+            print("  （这个文件现在还不存在 —— 那是正常的，你还没做这一步。）")
+        else:
+            print("  没有可用的厂商，但你已经配了密钥。")
+            print("  请检查：")
+            print("    a) key 是否抄全、有没有多余空格（probe 会把指纹打在上面）")
+            print("    b) 账号是否已实名 / 欠费 / 未开通该模型")
+            print("    c) 模型名是否过时（跑 run.cmd probe 看服务端返回的真实列表）")
+            print("    d) 上面标了「连不上」的那几家，是网络问题，不是密钥问题")
     print(hr("="))
     print()
 

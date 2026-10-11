@@ -996,6 +996,41 @@ def main() -> int:
               f"实际 {one_article:.6f} 元 —— 如果超过 1 分钱，"
               f"文档里「先花几分钱」那句话就得改")
 
+    # ---- 没有密钥时，probe 也要能回答"网络通不通"
+    #
+    # 这两件事的解法完全不同：
+    #     网络不通 → 查 VPN、代理、公司防火墙
+    #     密钥不对 → 查 .env 那一行
+    # 而它们的表象一模一样："这东西用不了"。
+    #
+    # 第一版的 probe 在没有密钥时连一个请求都不发，只打印五遍"跳过" ——
+    # 名字叫探测，实际什么都没探。
+    print("\n[② 模型层 · 没有密钥也要能测连通性]")
+
+    from probe import check_reachable, print_probe_report
+
+    ok_reach, note_reach = check_reachable({})
+    check("没配 base_url 时直接返回失败，不去发请求",
+          ok_reach is False and "base_url" in note_reach, f"实际 {ok_reach!r}, {note_reach!r}")
+
+    probe_buf = io.StringIO()
+    with contextlib.redirect_stdout(probe_buf):
+        print_probe_report([
+            {"provider": "甲家", "label": "甲家", "env": "A_KEY", "has_key": False,
+             "status": "no_key", "reachable": True, "reachable_note": "可达"},
+            {"provider": "乙家", "label": "乙家", "env": "B_KEY", "has_key": False,
+             "status": "no_key", "reachable": False, "reachable_note": "ConnectionError: 拒绝连接"},
+        ])
+    probe_out = probe_buf.getvalue()
+
+    check("连不上的那家会被指出来", "乙家" in probe_out and "连不上" in probe_out)
+    check("连不上时明说「这和密钥无关」", "这和密钥无关" in probe_out,
+          "把网络问题说成密钥问题，用户会去查错的地方，浪费的是耐心")
+    check("一家密钥都没有时，不把话说成「厂商不可用」",
+          "因为你还没有配任何密钥" in probe_out,
+          "「没有可用的厂商」听起来像系统坏了，其实只是还没配")
+    check("报告里会数出几家能连上", "1/2" in probe_out, f"实际 {probe_out[-500:]}")
+
     # 模型选择：这里守的是一条会让用户第一次就卡死的路径。
     # 有的厂商不提供 /models 接口 —— 那和"密钥好不好"毫无关系，
     # 绝不能因此告诉用户"无法测试"。
