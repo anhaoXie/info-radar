@@ -232,6 +232,7 @@ info-radar/
 │
 ├─ src/
 │   ├─ config.py             读所有配置文件 + 宽容地读文本（GBK 也认）
+│   ├─ display.py            按显示宽度截断文本（中文占 2 列，不能用 len）
 │   ├─ secrets.py            ⑤ 密钥与脱敏（三条规则）
 │   ├─ ledger.py             ⓪⑤ 账本与预算闸门
 │   ├─ llm.py                ② 模型层：通话 / 重试 / 计量 / 留痕

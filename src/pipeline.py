@@ -62,6 +62,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src import task as task_mod  # noqa: E402
+from src.display import truncate  # noqa: E402
 from src.config import load_policy, load_task, main_guard  # noqa: E402
 from src.ledger import Budget, BudgetExceeded, Ledger  # noqa: E402
 from src.llm import LLMClient, LLMError, LLMResult  # noqa: E402
@@ -215,7 +216,7 @@ def run_pipeline(
         title = str(item.get("title") or "")
 
         if echo:
-            print(f"[{index:>3}/{total}] {item_id:<14} {title[:36]}")
+            print(f"[{index:>3}/{total}] {item_id:<14} {truncate(title, 44)}")
 
         outcome = ItemOutcome(item_id=item_id, title=title, source=str(item.get("source") or ""))
 
@@ -531,7 +532,7 @@ def main() -> int:
                 print("    想只跑那几条，把它们的 id 记下来，先 --source 或分批处理。")
         print()
         for index, item in enumerate(items, 1):
-            print(f"  {index:>3}. {item['id']:<14} {str(item.get('title'))[:44]}")
+            print(f"  {index:>3}. {item['id']:<14} {truncate(item.get('title'), 44)}")
         print()
         print("  去掉 --dry-run 才会真正处理。")
         print()

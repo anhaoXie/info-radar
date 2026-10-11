@@ -49,6 +49,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.display import truncate  # noqa: E402
 from src.config import load_policy, load_sources, main_guard  # noqa: E402
 
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
@@ -435,7 +436,7 @@ def collect(
             stats["stored"] += 1
             if verbose:
                 mark = " [截断]" if record["truncated"] else ""
-                print(f"        + {item['title'][:44]}{mark}  ({len(body)} 字)")
+                print(f"        + {truncate(item['title'], 44)}{mark}  ({len(body)} 字)")
 
         if position < len(sources):
             time.sleep(fetch_cfg["delay_between_sources"])
@@ -658,7 +659,7 @@ def import_inbox(verbose: bool = True) -> dict:
         imported += 1
         entries.append({"file": relative, "title": title, "chars": len(body)})
         if verbose:
-            print(f"  + {title[:44]}  ({len(body)} 字，来自 {path.name})")
+            print(f"  + {truncate(title, 44)}  ({len(body)} 字，来自 {path.name})")
 
     atomic_write_json(INDEX_PATH, index)
     atomic_write_json(PROJECT_ROOT / INBOX_DONE_NOTE, done_state)

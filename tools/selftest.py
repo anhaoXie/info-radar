@@ -1611,6 +1611,48 @@ def main() -> int:
           "超宽的行会被终端随意折行、打乱对齐全："
           + "；".join(f"第{i}行 {w}列「{t[:40]}」" for i, w, t in too_wide[:3]))
 
+    # ---- 按【显示宽度】截断，而不是按字符数
+    #
+    # 中文在终端里占 2 列，英文占 1 列。用 len() 或 [:44] 去截，
+    # 中文标题会被截成两倍宽：
+    #
+    #     英文标题截 44 个字符 → 占 44 列
+    #     中文标题截 44 个字符 → 占 88 列（实测最宽 81 列）
+    #
+    # 后果是同一列里中文行溢出、英文行留白，对齐全乱。
+    # 实测 run.cmd pipeline --dry-run：修之前 122 行里有 31 行超过 80 列，
+    # 修之后 0 行。
+    #
+    # **这类 bug 只用英文数据永远测不出来，而这个项目的数据一半是中文。**
+    print("\n[⑤ 界面 · 按显示宽度截断中英文]")
+
+    from src.display import pad, truncate as _truncate, width as _width
+
+    check("中文按 2 列算", _width("中文") == 4, f"实际 {_width('中文')}")
+    check("英文按 1 列算", _width("abcd") == 4)
+    check("中英混排按各自宽度累加", _width("中a文b") == 6, f"实际 {_width('中a文b')}")
+
+    chinese = "攻克超声穿颅读脑，拿下 4 亿元新融资，他们要做脑科学的「英伟达」"
+    english = "AI disqualification yields new Nikon Small World in Motion winner"
+
+    check("中文长标题截到 44 列（不是 44 个字符）",
+          _width(_truncate(chinese, 44)) <= 44, f"实际 {_width(_truncate(chinese, 44))} 列")
+    check("英文长标题也截到 44 列",
+          _width(_truncate(english, 44)) <= 44, f"实际 {_width(_truncate(english, 44))} 列")
+    check("中英文截断后的宽度一致（这是对齐全的前提）",
+          _width(_truncate(chinese, 44)) == _width(_truncate(english, 44)),
+          "宽度不一致，同一列就对不齐")
+    check("被截断时补省略号（让你看出这里被截了）",
+          _truncate(chinese, 44).endswith("…"), f"实际 {_truncate(chinese, 44)!r}")
+
+    short = "短标题"
+    check("放得下时原样返回，不加省略号", _truncate(short, 44) == short)
+    check("极窄的额度也不会崩", _width(_truncate(chinese, 2)) <= 2)
+
+    check("pad 按显示宽度补空格，中文补得比英文少",
+          _width(pad("中文", 10)) == 10 and _width(pad("abcd", 10)) == 10,
+          f"实际 {_width(pad('中文', 10))} / {_width(pad('abcd', 10))}")
+
     # ---------------------------------------------------------- 入口脚本
     print("\n[⑤ 入口脚本 · 编码、换行、引用]")
 

@@ -35,6 +35,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src import task as task_mod  # noqa: E402
+from src.display import truncate  # noqa: E402
 from src.config import load_policy, load_task, read_text_smart, main_guard  # noqa: E402
 from src.ledger import Budget, BudgetExceeded, Ledger  # noqa: E402
 from src.llm import FatalLLMError, LLMClient, LLMError  # noqa: E402
@@ -107,7 +108,7 @@ def run_evaluation(
         item_id = str(item.get("id") or f"#{index}")
         gold = item.get("gold") or {}
         if echo:
-            print(f"[{index:>3}/{len(rows)}] {item_id:<8} {str(item.get('title', ''))[:38]}")
+            print(f"[{index:>3}/{len(rows)}] {item_id:<8} {truncate(item.get('title', ''), 46)}")
 
         record: dict = {
             "id": item_id,
