@@ -539,6 +539,20 @@ def eval_set_origins() -> dict:
     return counts
 
 
+def load_providers_config() -> dict:
+    """读取厂商配置（申请地址、环境变量名等）。
+
+    这些信息放在 providers.json 里而不是写死在代码里：
+    申请地址会变，改了配置就够，不用改代码，也不会出现
+    "文档里是一个地址、程序里是另一个"这种不一致。
+    """
+    path = PROJECT_ROOT / "config" / "providers.json"
+    try:
+        return json.loads(path.read_text(encoding="utf-8")).get("providers", {})
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
 def show_status_plain() -> int:
     """说人话的状态面板。
 
@@ -566,6 +580,12 @@ def show_status_plain() -> int:
     labels_now = label_progress()
     state = eval_set_state()
     results = find_eval_results()
+    providers = load_providers_config()
+    recommended = providers.get("zhipu") or {}
+    rec_label = recommended.get("label", "智谱 GLM")
+    rec_url = recommended.get("console_url", "")
+    rec_hint = recommended.get("signup_hint", "手机号注册即可")
+    rec_env = recommended.get("api_key_env", "ZHIPU_API_KEY")
     has_key = (PROJECT_ROOT / ".env").exists() and any(
         line.strip() and not line.strip().startswith("#") and "=" in line
         and line.split("=", 1)[1].strip()
@@ -620,11 +640,19 @@ def show_status_plain() -> int:
         print("       ── 路线 A · 先看效果（推荐先走这条）──")
         print("         你能马上看到 AI 读完文章产出什么。")
         print()
-        print("         1. 去申请一个 AI 密钥（国内几家都有免费额度）")
-        print("         2. 存成 info-radar 文件夹里的 .env 文件")
+        if rec_url:
+            print("         1. 申请一个 AI 密钥。推荐用「%s」—— %s" % (rec_label, rec_hint))
+            print("            打开这个网址：")
+            print("            " + rec_url)
+            print()
+        else:
+            print("         1. 申请一个 AI 密钥（国内几家都有免费额度）")
+        print("         2. 把它存成 info-radar 文件夹里的 .env 文件")
         print("         3. run.cmd probe                 检查密钥通不通")
         print("         4. run.cmd pipeline -Limit 5     让 AI 先处理 5 篇")
         print("         5. run.cmd digest                看一眼日报长什么样")
+        print()
+        print("         （第 2 步的详细做法，跟着 status 走到那一步时会列出来）")
         print()
         print("       ── 路线 B · 先打地基（不花钱、不联网）──")
         print("         你能得到一个数字，用来判断 AI 做得准不准。")
@@ -653,10 +681,29 @@ def show_status_plain() -> int:
         next_action_given = True
 
     elif not has_key:
-        print("    →  去申请一个 AI 服务的密钥，填进 .env 文件")
+        print("    →  去申请一个 AI 密钥（唯一要花钱的一步，通常几分钱）")
         print()
-        print("       （这是唯一要花钱的一步，通常几分钱。")
-        print("        具体去哪申请、怎么填，看 docs/03-完整走一遍.md 的第 4 步）")
+        if rec_url:
+            print("       第 1 步　打开这个网址，注册，创建一个密钥：")
+            print("                " + rec_url)
+            print("                （推荐 %s —— %s）" % (rec_label, rec_hint))
+            print()
+            print("       第 2 步　在 info-radar 文件夹里，把 .env.example 复制一份，")
+            print("                改名成 .env")
+            print("                （文件名就是 .env —— 前面有个点，别存成 .env.txt）")
+            print()
+            print("       第 3 步　用记事本打开 .env，在这一行等号后面粘上你的密钥：")
+            print("                %s=" % rec_env)
+            print()
+            print("       第 4 步　回来跑：run.cmd probe")
+            print()
+            others = "、".join(
+                v.get("label", k) for k, v in providers.items() if k != "zhipu"
+            )
+            if others:
+                print("       用别家也行：" + others)
+        else:
+            print("       看 docs/03-完整走一遍.md 的第 4 步")
         next_action_given = True
 
     elif not results or all(

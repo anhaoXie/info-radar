@@ -646,6 +646,35 @@ def main() -> int:
         finally:
             archive_mod.EVAL_SET_PATH = original_path
 
+    # ---------------------------------------------------------- ② 厂商配置
+    print("\n[② 模型层 · 厂商配置]")
+
+    from src.config import load_providers
+
+    providers_cfg = load_providers().get("providers", {})
+    check("配置里有多家厂商可选", len(providers_cfg) >= 3, f"实际 {len(providers_cfg)} 家")
+
+    # status 面板靠 console_url 打印"去哪申请密钥"。
+    # 少了它，面板只会说一句"去申请一个密钥" —— 对没做过这件事的人，那等于没说。
+    missing_url = [
+        name for name, cfg in providers_cfg.items()
+        if not str(cfg.get("console_url", "")).startswith("http")
+    ]
+    check("每家厂商都配了申请密钥的网址", not missing_url, f"缺网址：{missing_url}")
+
+    missing_env = [name for name, cfg in providers_cfg.items() if not cfg.get("api_key_env")]
+    check("每家厂商都配了环境变量名", not missing_env, f"缺：{missing_env}")
+
+    missing_base = [
+        name for name, cfg in providers_cfg.items()
+        if not str(cfg.get("base_url", "")).startswith("http")
+    ]
+    check("每家厂商都配了接口地址", not missing_base, f"缺：{missing_base}")
+
+    check("被推荐的那家（zhipu）写了注册提示",
+          bool(providers_cfg.get("zhipu", {}).get("signup_hint")),
+          "推荐哪家、怎么注册，是用户第一个会问的问题")
+
     # ---------------------------------------------------------- ⑤ 权限层
     print("\n[⑤ 权限层 · 每日运行与健康记录]")
 

@@ -1,22 +1,27 @@
 {
   "_layer": "② 模型层 —— 换厂商只改这个文件，代码一行不动。",
-  "_warning": "下面的 default_model 全部是【未经验证的猜测】，模型名变化很快。请用 `python tools/probe.py` 让程序去问服务端，然后用真实结果覆盖它。不要把记忆当事实。",
+  "_warning": "下面的 default_model 全部是【未经验证的猜测】，模型名变化很快。请用 run.cmd probe 让程序去问服务端，然后用真实结果覆盖它。不要把记忆当事实。",
+  "_console_url_note": "console_url 是【申请密钥的地址】。run.cmd status 在需要密钥时会把它打出来 —— 这样你就不用去翻文档找。地址如果失效了，直接改这里。",
   "providers": {
     "zhipu": {
       "label": "智谱 GLM",
       "base_url": "https://open.bigmodel.cn/api/paas/v4",
       "api_key_env": "ZHIPU_API_KEY",
+      "console_url": "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys",
+      "signup_hint": "手机号注册即可。历史上 flash 系列有免费额度，够你跑很多次测试。",
       "default_model": "glm-5.3-flash",
       "model_verified": false,
       "supports_json_mode": true,
       "price_cny_per_1m": { "input": null, "output": null },
       "price_verified_on": null,
-      "notes": "OpenAI 兼容。控制台可申请 key。历史上 flash 系列有免费额度，以官网为准。"
+      "notes": "OpenAI 兼容。【推荐第一次用这家】—— 注册最省事，有免费额度，文档是中文的。"
     },
     "dashscope": {
       "label": "阿里通义千问（DashScope 兼容模式）",
       "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
       "api_key_env": "DASHSCOPE_API_KEY",
+      "console_url": "https://bailian.console.aliyun.com/",
+      "signup_hint": "需要阿里云账号（支付宝/淘宝可直接登录）。新用户通常有免费额度。",
       "default_model": "qwen-plus",
       "model_verified": false,
       "supports_json_mode": true,
@@ -28,17 +33,21 @@
       "label": "Kimi（月之暗面）",
       "base_url": "https://api.moonshot.cn/v1",
       "api_key_env": "MOONSHOT_API_KEY",
+      "console_url": "https://platform.moonshot.cn/console/api-keys",
+      "signup_hint": "手机号注册。新账号通常送一点体验额度。",
       "default_model": "moonshot-v1-8k",
       "model_verified": false,
       "supports_json_mode": true,
       "price_cny_per_1m": { "input": null, "output": null },
       "price_verified_on": null,
-      "notes": "长上下文见长。8k 系列上下文偏小，注意正文长度。"
+      "notes": "长上下文见长。8k 系列上下文偏小，注意正文长度（本项目单篇截到 3000 字，够用）。"
     },
     "ark": {
       "label": "火山方舟（豆包）",
       "base_url": "https://ark.cn-beijing.volces.com/api/v3",
       "api_key_env": "ARK_API_KEY",
+      "console_url": "https://console.volcengine.com/ark",
+      "signup_hint": "需要火山引擎账号并实名。开通流程比前几家麻烦一些。",
       "default_model": null,
       "model_verified": false,
       "supports_json_mode": true,
@@ -50,6 +59,8 @@
       "label": "DeepSeek",
       "base_url": "https://api.deepseek.com/v1",
       "api_key_env": "DEEPSEEK_API_KEY",
+      "console_url": "https://platform.deepseek.com/api_keys",
+      "signup_hint": "手机号注册。价格很低，适合大批量跑，但通常没有免费额度，需要先充一点。",
       "default_model": "deepseek-chat",
       "model_verified": false,
       "supports_json_mode": true,
