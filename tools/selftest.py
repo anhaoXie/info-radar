@@ -963,6 +963,39 @@ def main() -> int:
           bool(providers_cfg.get("zhipu", {}).get("signup_hint")),
           "推荐哪家、怎么注册，是用户第一个会问的问题")
 
+    # ---- 单价：填了的必须有出处，没核实过的必须留空
+    #
+    # 这里守两条相反的诱惑：
+    #   1. 懒得查 → 全留 null → 账本永远显示 0 元，
+    #      而你以为没花钱，账单在另一边涨
+    #   2. 图省事 → 凭印象填一个数字 → 你照着它做成本决策，而它是编的
+    #
+    # **一个编出来的价格，比没有价格更坏。**
+    priced = {k: v for k, v in providers_cfg.items()
+              if (v.get("price_cny_per_1m") or {}).get("input") is not None}
+
+    check("至少有一家填了真实单价", bool(priced),
+          "全留 null 的话，成本那栏永远是 0 元，账本就没有意义")
+    check("填了单价的厂商都注明了来源网址",
+          all(v.get("price_source_url") for v in priced.values()),
+          f"缺来源：{[k for k, v in priced.items() if not v.get('price_source_url')]}")
+    check("填了单价的厂商都注明了抄录日期",
+          all(v.get("price_verified_on") for v in priced.values()),
+          "价格会变。没有日期，你分不清这数字是三年前的还是今天的")
+    check("免费的模型被单独标出来（可以零成本先跑起来）",
+          bool(providers_cfg.get("zhipu", {}).get("free_model")),
+          "有一条完全不花钱的路，是让犹豫的人迈出第一步的关键")
+
+    if priced:
+        sample = priced.get("zhipu") or next(iter(priced.values()))
+        price = sample["price_cny_per_1m"]
+        # 一篇 3000 字的文章 ≈ 2000 输入 token，结构化产出 ≈ 250 输出 token
+        one_article = 2000 * price["input"] / 1_000_000 + 250 * price["output"] / 1_000_000
+        check("按真实单价算，一篇的成本不到 1 分钱",
+              one_article < 0.01,
+              f"实际 {one_article:.6f} 元 —— 如果超过 1 分钱，"
+              f"文档里「先花几分钱」那句话就得改")
+
     # 模型选择：这里守的是一条会让用户第一次就卡死的路径。
     # 有的厂商不提供 /models 接口 —— 那和"密钥好不好"毫无关系，
     # 绝不能因此告诉用户"无法测试"。

@@ -713,7 +713,7 @@ def show_status_plain() -> int:
             print("            " + rec_url)
             print()
         else:
-            print("         1. 申请一个 AI 密钥（国内几家都有免费额度）")
+            print("         1. 申请一个 AI 密钥（手机号注册就行）")
         print("         2. 把它存成 info-radar 文件夹里的 .env 文件")
         print("         3. run.cmd probe                 检查密钥通不通")
         print("         4. run.cmd pipeline -Limit 5     让 AI 先处理 5 篇")
