@@ -620,10 +620,12 @@ def show_status_plain() -> int:
     results = find_eval_results()
     providers = load_providers_config()
     recommended = providers.get("zhipu") or {}
+    rec_provider = "zhipu"
     rec_label = recommended.get("label", "智谱 GLM")
     rec_url = recommended.get("console_url", "")
     rec_hint = recommended.get("signup_hint", "手机号注册即可")
     rec_env = recommended.get("api_key_env", "ZHIPU_API_KEY")
+    rec_free = recommended.get("free_model") or ""
     has_key = (PROJECT_ROOT / ".env").exists() and any(
         line.strip() and not line.strip().startswith("#") and "=" in line
         and line.split("=", 1)[1].strip()
@@ -720,6 +722,22 @@ def show_status_plain() -> int:
         print("         5. run.cmd digest                看一眼日报长什么样")
         print()
         print("         （第 2 步的详细做法，跟着 status 走到那一步时会列出来）")
+        if rec_free:
+            # 零成本这条路要留着，但不能挤进上面那 5 步里。
+            #
+            # 第一版把它塞进了第 1 步：
+            #   "申请一个 AI 密钥。推荐用「智谱 GLM」—— 手机号注册即可。如果只想先试试，
+            #    把 default_model 改成 glm-4.7-flash —— 它在官方价格页上标着输入输出都免费。"
+            # 那一行有 158 列宽 —— 80 列的终端里折成三行，而且把
+            # "怎么注册"和"用哪个模型"两件事混在一起：
+            # 你还没拿到密钥，就被要求先做一个关于模型的决定。
+            #
+            # **一段话里塞两件事，读者会两件都做不好。**
+            print()
+            print("         想一分钱都不花？")
+            print(f"         把 config/providers.json 里 {rec_provider} 的 default_model")
+            print(f"         改成 {rec_free} —— 官方价格页上它输入输出都标着免费。")
+            print("         （不改也行：用现在这个模型，20 篇大约 5 分钱。）")
         print()
         print("       ── 路线 B · 先打地基（不花钱、不联网）──")
         print("         你能得到一个数字，用来判断 AI 做得准不准。")

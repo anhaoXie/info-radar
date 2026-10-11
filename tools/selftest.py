@@ -1574,6 +1574,43 @@ def main() -> int:
               f"实际 {dead}")
         check("没有状态文件时不会崩", dead_no_file == [])
 
+    # ---- 面板上的每一行都不该超过 80 列
+    #
+    # 这件事已经咬过我两次：
+    #   第 32 轮：把"想免费就改模型"塞进了第 1 步，那一行变成 158 列宽；
+    #   第 37 轮：实测发现它在 80 列的终端里折成三行，
+    #             而且把"怎么注册"和"用哪个模型"两件事混在一起。
+    #
+    # 超过了 80 列，终端就会替你折行 —— 折在哪由终端决定，
+    # 于是精心排的对齐全乱，关键信息被推到你看不见的地方。
+    #
+    # 中文按 2 列算（东亚全角字符）。
+    print("\n[⑤ 界面 · 面板每行不超过 80 列]")
+
+    import unicodedata
+
+    def _display_width(text: str) -> int:
+        return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in text)
+
+    panel_buf = io.StringIO()
+    with contextlib.redirect_stdout(panel_buf):
+        try:
+            status_mod.show_status_plain()
+        except SystemExit:
+            pass
+    panel_lines = panel_buf.getvalue().splitlines()
+    too_wide = [
+        (index, _display_width(line), line.strip())
+        for index, line in enumerate(panel_lines, 1)
+        if _display_width(line) > 80
+    ]
+
+    check("status 面板真的输出了内容", len(panel_lines) > 5,
+          f"只拿到 {len(panel_lines)} 行，这条不成立的话下面那条没意义")
+    check("status 面板没有超过 80 列的行", not too_wide,
+          "超宽的行会被终端随意折行、打乱对齐全："
+          + "；".join(f"第{i}行 {w}列「{t[:40]}」" for i, w, t in too_wide[:3]))
+
     # ---------------------------------------------------------- 入口脚本
     print("\n[⑤ 入口脚本 · 编码、换行、引用]")
 

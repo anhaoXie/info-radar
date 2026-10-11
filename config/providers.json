@@ -11,7 +11,7 @@
       "base_url": "https://open.bigmodel.cn/api/paas/v4",
       "api_key_env": "ZHIPU_API_KEY",
       "console_url": "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys",
-      "signup_hint": "手机号注册即可。如果只想先试试，把 default_model 改成 glm-4.7-flash —— 它在官方价格页上标着输入输出都免费。",
+      "signup_hint": "手机号注册即可。",
       "default_model": "glm-5.3-flash",
       "model_verified": false,
       "free_model": "glm-4.7-flash",
