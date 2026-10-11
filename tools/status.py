@@ -248,7 +248,7 @@ def show_progress() -> int:
     # 下一步由数据决定，不写死。
     if labels_now and labels_now[0] < labels_now[1]:
         filled, total = labels_now
-        print(f"  下一步：打开 eval/worksheet.md 通读一遍，把判断填进 eval/labels.txt")
+        print(f"  下一步：打开 eval/worksheet-lite.md 扫一遍（标题+开头，5 分钟）")
         print(f"         （当前 {filled}/{total}）填完跑 run.cmd compile")
     elif state == "placeholder" and not health:
         print("  下一步：run.cmd collect 抓一批文档，或 run.cmd inbox 用你自己的文档")

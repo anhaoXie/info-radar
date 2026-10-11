@@ -40,7 +40,8 @@ RAW_DIR = PROJECT_ROOT / "data" / "raw"
 EVAL_DIR = PROJECT_ROOT / "eval"
 CANDIDATES_PATH = EVAL_DIR / "candidates.jsonl"
 LABELS_PATH = EVAL_DIR / "labels.txt"
-WORKSHEET_PATH = EVAL_DIR / "worksheet.md"
+WORKSPACE_PATH = EVAL_DIR / "worksheet.md"
+LITE_PATH = EVAL_DIR / "worksheet-lite.md"
 EVAL_SET_PATH = EVAL_DIR / "eval_set.jsonl"
 
 AMBIGUOUS = {"?", "？", "x", "X"}
@@ -131,7 +132,10 @@ def write_labels(picked: list[dict], task: dict) -> None:
     header = [
         f"# 标注表 · {len(picked)} 条",
         "#",
-        "# 填法：把每行两个竖线之间补上你的判断，例如：",
+        "# 怎么填：先看 eval/worksheet-lite.md（标题+开头，5 分钟能过一遍），",
+        "#         拿不准的再去 eval/worksheet.md 搜 id 看全文。",
+        "#",
+        "# 格式：把每行两个竖线之间补上你的判断，例如：",
         "#     p001 | 模型与技术 | 4",
         "#",
         "# 三条规则：",
@@ -199,7 +203,85 @@ def write_worksheet(picked: list[dict], task: dict) -> None:
         "它会检查格式、告诉你分类分布是否均衡，然后生成 `eval/eval_set.jsonl`。",
         "",
     ]
-    WORKSHEET_PATH.write_text("\n".join(lines), encoding="utf-8")
+    WORKSPACE_PATH.write_text("\n".join(lines), encoding="utf-8")
+
+
+def write_worksheet_lite(picked: list[dict], task: dict, *, lead_chars: int = 150) -> None:
+    """生成"速览版"工作纸：标题 + 开头一小段。
+
+    【为什么要有这个文件】
+
+    全文版 `worksheet.md` 有 118KB —— 20 篇 × 3000 字。
+    **认真读完需要 30 到 45 分钟。** 而它恰好卡在整个目标的唯一瓶颈上：
+    没有标注就没有真值，没有真值就没有基线，没有基线后面全部无从谈起。
+
+    问题是：**分类这件事，标题通常就够了。**
+
+    一条资讯的标题加上开头一段，90% 的情况下足以判断它属于哪一类。
+    真正需要全文的，是"摘要有没有遗漏/有没有编造"那个判断 ——
+    而那个判断发生在审核队列里（`run.cmd review`），不在这一步。
+
+    所以这里把两个判断拆到两个时间点去做：
+        现在：只看标题，快速分类（5 分钟）
+        以后：在审核队列里对着模型输出看全文（那时候你本来就要读）
+
+    **一个你愿意做的 5 分钟标注，胜过一个你不会做的 30 分钟标注。**
+    略微粗糙但存在的真值，比精确但不存在的真值有用得多。
+
+    拿不准的条目，去 worksheet.md 里搜它的 id 看全文 —— 那才是全文版的用途。
+    """
+    categories = task.get("categories", [])
+    scale = task.get("importance_scale", {})
+
+    lines = [
+        "# 标注速览",
+        "",
+        f"{len(picked)} 条。**分类通常看标题就够了。**",
+        "拿不准的，去 `worksheet.md` 里搜这个 id 看全文。",
+        "",
+        "> 全文版有 118KB，认真读完要半小时。速览版的用途是让这件事**真的发生** ——",
+        "> 而全文的用途是解决那少数几个你真的拿不准的条目。",
+        "> 次序不要搞反：先速览过一遍，再挑出三五条去查全文。",
+        "",
+        "## 分类体系（只能选一个）",
+        "",
+    ]
+    for name in categories:
+        lines.append(f"- `{name}`")
+    lines += ["", "## 重要性（1-5）", ""]
+    for key, value in sorted(scale.items(), key=lambda kv: str(kv[0]), reverse=True):
+        lines.append(f"- `{key}` —— {value}")
+    lines += ["", "---", ""]
+
+    for index, item in enumerate(picked, 1):
+        lead = " ".join(str(item.get("body", "")).split())
+        if len(lead) > lead_chars:
+            lead = lead[:lead_chars] + "……"
+        lines += [
+            f"### {index}　`{item['id']}`",
+            f"**{item.get('title', '')}**　·　{item.get('source', '')}　·　{item.get('body_chars', 0)} 字",
+            f"> {lead}",
+            "",
+        ]
+
+    lines += [
+        "---",
+        "",
+        "## 填这里",
+        "",
+        "打开 `eval/labels.txt`，按**同样的顺序**填：",
+        "",
+        "```",
+        f"{picked[0]['id'] if picked else '<id>'} | 分类 | 重要性",
+        "```",
+        "",
+        "`labels.txt` 里那 20 行的 id 顺序和上面完全一致，所以你可以照着这个顺序一路填下去，",
+        "不用来回找。拿不准的写 `?`。",
+        "",
+        "填完：`run.cmd labels` 看进度，`run.cmd compile` 生成评估集。",
+        "",
+    ]
+    LITE_PATH.write_text("\n".join(lines), encoding="utf-8")
 
 
 # ------------------------------------------------------------------ 解析标注
@@ -253,6 +335,7 @@ def cmd_sample(args: argparse.Namespace) -> int:
     write_candidates(picked)
     write_labels(picked, task)
     write_worksheet(picked, task)
+    write_worksheet_lite(picked, task)
 
     distribution = Counter(item["source"] for item in picked)
     lengths = sorted(int(item.get("body_chars") or 0) for item in picked)
@@ -265,18 +348,22 @@ def cmd_sample(args: argparse.Namespace) -> int:
     print(f"  正文长度      最短 {lengths[0]} 字，中位 {lengths[len(lengths) // 2]} 字，最长 {lengths[-1]} 字")
     print(f"  库里可用总数  {len(items)} 条")
     print()
-    print("  生成了三个文件：")
-    print(f"    eval/worksheet.md      <- 【先看这个】每篇正文都在里面，一屏一条")
-    print(f"    eval/labels.txt        <- 【然后填这个】格式：p001 | 分类 | 重要性")
-    print(f"    eval/candidates.jsonl  <- 机器格式，不要手工编辑")
+    print("  生成了四个文件：")
+    print(f"    eval/worksheet-lite.md   <- 【先看这个】标题+开头，5 分钟能过一遍")
+    print(f"    eval/labels.txt          <- 【然后填这个】格式：p001 | 分类 | 重要性")
+    print(f"    eval/worksheet.md        <- 全文版，拿不准的条目去这里搜 id")
+    print(f"    eval/candidates.jsonl    <- 机器格式，不要手工编辑")
     print()
     print("  下一步：")
-    print("    1. 打开 eval/worksheet.md，从头读到尾")
-    print("    2. 每读一条，先在脑子里给出分类和重要性，然后写进 eval/labels.txt")
-    print("    3. 拿不准的写问号，不要猜")
-    print("    4. 填完跑：run.cmd compile")
+    print("    1. 打开 eval/worksheet-lite.md，从头扫到尾")
+    print("    2. 每看一条，先在脑子里给出分类和重要性，然后写进 eval/labels.txt")
+    print("    3. 挑出你真的拿不准的三五条，去 worksheet.md 里搜 id 看全文")
+    print("    4. 拿不准的写问号，不要猜")
+    print("    5. 填完跑：run.cmd compile")
     print()
-    print("  这是整套系统里唯一不能交给 AI 的一步。花那二十分钟。")
+    print("  这是整套系统里唯一不能交给 AI 的一步。")
+    print("  速览版的存在是为了让它【真的发生】—— 一个你愿意做的 5 分钟标注，")
+    print("  胜过一个你不会做的 30 分钟标注。")
     print()
     return 0
 

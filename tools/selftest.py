@@ -432,6 +432,40 @@ def main() -> int:
     capped = make_eval_set.pick_diverse(fake_items, 20, per_source_cap=3)
     check("单源上限卡死时不会死循环", len(capped) == 6, f"实际 {len(capped)}")
 
+    # 速览版工作纸：标注这件事的瓶颈不是"读得不够仔细"，是"根本没人愿意花半小时"。
+    # 速览版存在的唯一目的是让它真的发生，所以这两条断言守的是"能不能用"，
+    # 不是"内容全不全"。
+    lite_fixture = [
+        {
+            "id": f"L{i:02d}",
+            "title": f"第 {i} 条的标题",
+            "source": "测试源",
+            "body_chars": 3000,
+            "body": f"第 {i} 条的开头一段。这里是用来验证摘录有没有被截断的填充文字。" * 20,
+        }
+        for i in range(1, 6)
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        real_lite = make_eval_set.LITE_PATH
+        make_eval_set.LITE_PATH = Path(tmp) / "worksheet-lite.md"
+        try:
+            make_eval_set.write_worksheet_lite(lite_fixture, task_cfg)
+            lite = make_eval_set.LITE_PATH.read_text(encoding="utf-8")
+        finally:
+            make_eval_set.LITE_PATH = real_lite
+
+    check("速览版列出了每一条", all(f"`{it['id']}`" in lite for it in lite_fixture))
+    check("速览版带上了分类体系", "产品发布" in lite and "模型与技术" in lite)
+    check("速览版带上了重要性标准", "会改变我未来三个月的做法" in lite)
+    check("每一条都有开头摘录", lite.count("> ") >= len(lite_fixture),
+          f"实际 {lite.count('> ')} 处引用")
+    check("摘录被截断，不会退化成全文版", "……" in lite)
+    check("速览版的顺序和抽样顺序一致",
+          [lite.index(f"`{it['id']}`") for it in lite_fixture]
+          == sorted(lite.index(f"`{it['id']}`") for it in lite_fixture),
+          "顺序乱了的话，人得来回找对应的行")
+    check("速览版确实比全文版短得多", len(lite) < 6000, f"实际 {len(lite)} 字符")
+
     # ---------------------------------------------------------- ④ 分发层
     print("\n[④ 分发层 · 日报渲染与审核解析]")
 

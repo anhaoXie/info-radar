@@ -12,9 +12,10 @@ data/inbox/*
 !data/inbox/.gitkeep
 !data/inbox/_说明.md
 
-# 标注产物：里面含抓来的文章全文，不要提交
+# 标注产物：里面含抓来的文章全文/开头，不要提交
 eval/candidates.jsonl
 eval/worksheet.md
+eval/worksheet-lite.md
 # 但 labels.txt 要提交 —— 它只有 id 和你的判断，没有文章正文，
 # 而且它是你唯一无法重新生成的东西（重新 sample 会覆盖它）。
 # 你的判断值得被版本管理记住。

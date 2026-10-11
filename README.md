@@ -95,8 +95,10 @@ run.cmd review                    # 看历史产出
 run.cmd labels       # 看进度（现在是 0/20）
 ```
 
-打开 **`eval/worksheet.md`** —— 20 篇正文都在里面，一屏一篇。
-读一篇，把判断写进 **`eval/labels.txt`**：
+打开 **`eval/worksheet-lite.md`** —— 标题 + 开头一段，20 条一屏扫完（10KB）。
+拿不准的那三五条，再去 `eval/worksheet.md`（全文版，118KB）里搜 id。
+
+然后读一条，把判断写进 **`eval/labels.txt`**：
 
 ```
 <id> | 分类 | 重要性
@@ -215,7 +217,8 @@ info-radar/
 ├─ eval/
 │   ├─ eval_set.jsonl        真值样本（现在是占位数据，你要替换）
 │   ├─ RUBRIC.md             判定标准 —— 比代码重要
-│   ├─ worksheet.md          标注工作纸（跑 sample 后生成）
+│   ├─ worksheet-lite.md    标注速览（标题+开头，5 分钟能过一遍）← 先看这个
+│   ├─ worksheet.md         标注全文版（拿不准的条目来这里搜 id）
 │   ├─ labels.txt            你要填的文件（跑 sample 后生成）
 │   └─ CHANGELOG.md          改动记录（S3 起必须写）
 │
