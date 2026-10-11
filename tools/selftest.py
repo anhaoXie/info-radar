@@ -1039,6 +1039,33 @@ def main() -> int:
     finally:
         _llm_module.LLMClient = _real_client_class
 
+    # ---------------------------------------------------------- 文档不写死数字
+    print("\n[⑤ 文档 · 不写会过期的数字]")
+
+    # 这条守的是一类很隐蔽的假警报：
+    #
+    # 文档里原来写着「你应该看到 129 / 129」。而随着项目长大，
+    # 实际输出变成了 186 / 186 —— 用户照着文档一对，发现对不上，
+    # 会以为是自己弄坏了什么，然后跑来问一个根本不存在的问题。
+    #
+    # **任何写死在文档里的、会随项目变化的数字，都会变成假警报。**
+    # 所以干脆让测试盯着：文档里不许出现具体项数。
+    import re as _re_docs
+
+    stale: list[str] = []
+    doc_files = sorted((PROJECT_ROOT / "docs").glob("*.md")) + [PROJECT_ROOT / "README.md"]
+    for doc in doc_files:
+        if not doc.exists():
+            continue
+        for lineno, line in enumerate(read_text_smart(doc).splitlines(), 1):
+            if _re_docs.search(r"全部通过\s+\d+\s*/", line):
+                stale.append(f"{doc.name}:{lineno}（写死了「全部通过 x / y」）")
+            if _re_docs.search(r"#\s*\d+\s*项", line):
+                stale.append(f"{doc.name}:{lineno}（命令注释里写死了项数）")
+
+    check("文档里没有写死的自检项数", not stale,
+          "这些地方会随项目长大而变成假警报：" + "；".join(stale))
+
     # ---------------------------------------------------------- 入口脚本
     print("\n[⑤ 入口脚本 · 编码、换行、引用]")
 

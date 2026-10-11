@@ -52,8 +52,8 @@
 一个需要密钥才能告诉你"我打算做什么"的工具，你只会在已经出错的时候才用它。
 
 ```powershell
-run.cmd selftest                  # 129 项纯逻辑自检
-run.cmd mocktest                  # 99 项全链路自检（本地假服务端）
+run.cmd selftest                  # 离线自检纯逻辑
+run.cmd mocktest                  # 全链路自检（本地假服务端）
 run.cmd health                    # 任务健康表
 run.cmd inbox                     # 导入本地文档
 run.cmd sample -N 20              # 抽样本、做标注表
@@ -185,7 +185,7 @@ ZHIPU_API_KEY=你的key
 ### 2. 自检 + 探测
 
 ```powershell
-run.cmd selftest   # 离线自检全部逻辑，129 项，不联网不花钱
+run.cmd selftest   # 离线自检全部逻辑，不联网不花钱
 run.cmd doctor     # 环境自检，不联网
 run.cmd probe      # 联网，真实调用一次，并列出你账号可用的模型名
 ```
@@ -243,8 +243,8 @@ info-radar/
 │
 ├─ tools/
 │   ├─ probe.py              探测与自检：把"我以为"换成"服务端说"
-│   ├─ selftest.py           离线自检纯逻辑（129 项，不花钱）
-│   ├─ mocktest.py           全链路自检：本地假服务端验证真客户端（99 项）
+│   ├─ selftest.py           离线自检纯逻辑（不花钱）
+│   ├─ mocktest.py           全链路自检：本地假服务端验证真客户端
 │   ├─ make_eval_set.py      抽样 / 标注表 / 编译评估集
 │   └─ status.py             进展总览与账本速览
 │
@@ -275,8 +275,8 @@ info-radar/
 ```powershell
 # ---- 先跑这三个：不联网、不花钱 ----
 run.cmd status                        # 我走到哪了
-run.cmd selftest                      # 离线自检纯逻辑（129 项，毫秒级）
-run.cmd mocktest                      # 全链路自检：本地假服务端验证真客户端（99 项）
+run.cmd selftest                      # 离线自检纯逻辑（毫秒级）
+run.cmd mocktest                      # 全链路自检：本地假服务端验证真客户端
 
 # ---- 数据与标注（S1 的核心工作）----
 run.cmd inbox                         # 导入 data/inbox/ 里的本地文档

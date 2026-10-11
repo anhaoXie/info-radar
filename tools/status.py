@@ -423,7 +423,7 @@ def show_help() -> int:
     print("    run.cmd daily                 真正跑一次（要密钥）")
     print("    run.cmd daily --no-collect    只处理 inbox，不抓 RSS")
     print("    run.cmd daily --continue-on-error  失败后继续（默认会停下）")
-    print("    run.cmd mocktest              全链路自检：本地假服务端（99 项）")
+    print("    run.cmd mocktest              全链路自检：本地假服务端")
     print("    run.cmd doctor                环境自检")
     print("    run.cmd status --full         分层的技术视图")
     print()
