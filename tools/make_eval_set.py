@@ -506,19 +506,58 @@ def cmd_wizard(args: argparse.Namespace) -> int:
             print()
             print("  （开头只显示这么多。想看全文就按 m）")
 
-    def ask_number(prompt: str, valid: range | list[int], hint: str) -> int | str | None:
-        """问一个数字。返回 None 表示"拿不准"，返回 'quit' 表示要退出。"""
+    def show_full(item_id: str) -> None:
+        """按 m 时把这条的全文打出来。
+
+        【为什么这件事必须真的能用】
+
+        界面上一开始就写着"想看全文就按 m"。如果按了没反应、
+        或者回一句"看不懂 'm'" —— 那比没有这个提示更糟：
+        用户会以为自己按错了，反复试几次，然后觉得"这东西不好使"。
+        **界面承诺的每一个键，都必须真的存在。**
+        """
+        item = by_id[item_id]
+        body = " ".join(str(item.get("body", "")).split())
+        print()
+        print("  " + "-" * 62)
+        print(f"  {item.get('title', '')}")
+        print(f"  来源：{item.get('source', '')}　·　{len(body)} 字")
+        print()
+        for start in range(0, len(body), 900):
+            print(f"  {body[start:start + 900]}")
+        print("  " + "-" * 62)
+        print()
+
+    def ask_number(
+        prompt: str,
+        valid: range | list[int],
+        hint: str,
+        *,
+        allow_unsure: bool = True,
+        on_more=None,
+    ):
+        """问一个数字。返回 None 表示"拿不准"，返回 'quit' 表示要退出。
+
+        allow_unsure=False 时，"0" 不再表示拿不准，而是被当成无效输入重问 ——
+        因为"重要性 = 拿不准"没有意义；而如果它返回 None，
+        用户刚刚选好的分类会在存盘时被一起丢掉
+        （分类非空、重要性为空 = 这条算未填）。
+        """
         while True:
             try:
                 raw = input(prompt).strip()
             except EOFError:
                 return "quit"
-            if raw.lower() == "q":
+            key = raw.lower()
+            if key == "q":
                 return "quit"
+            if key == "m" and on_more is not None:
+                on_more()
+                continue
             if raw == "":
                 print(f"  （{hint}）")
                 continue
-            if raw in ("0", "?"):
+            if allow_unsure and raw in ("0", "?", "？"):
                 return None
             if raw.isdigit() and int(raw) in list(valid):
                 return int(raw)
@@ -540,6 +579,7 @@ def cmd_wizard(args: argparse.Namespace) -> int:
                 "  请输入数字后回车：",
                 range(1, len(categories) + 1),
                 f"请输入 1 到 {len(categories)} 之间的数字，或 0 表示拿不准",
+                on_more=lambda: show_full(item_id),
             )
             if choice == "quit":
                 raise KeyboardInterrupt
@@ -557,6 +597,7 @@ def cmd_wizard(args: argparse.Namespace) -> int:
                     "  请输入 1-5 后回车：",
                     range(1, 6),
                     "请输入 1 到 5 之间的数字",
+                    allow_unsure=False,
                 )
                 if pick == "quit":
                     raise KeyboardInterrupt

@@ -548,6 +548,77 @@ def main() -> int:
     check("向导写出的文件能被 parse_labels 完整读回（编译的前提）",
           len(back) == 4, f"实际读回 {len(back)} 条")
 
+    # ---------------------------------------------------------- 标注向导的按键
+    print("\n[⓪ 评估层 · 标注向导的按键真的存在吗]")
+
+    # 界面上一开始就写着"想看全文就按 m"。第一版处理输入的函数根本不认识 m ——
+    # 用户按下去只会得到"看不懂 'm'"，反复试几次，然后觉得这东西不好使。
+    # **界面承诺的每一个键，都必须真的存在。**
+    #
+    # 用脚本化输入来验：把 input() 换成按顺序吐固定答案的假函数。
+    import builtins
+    import contextlib
+    import io
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_dir = Path(tmp)
+        cand_path = tmp_dir / "candidates.jsonl"
+        lab_path = tmp_dir / "labels.txt"
+        marker = "【这是只有全文里才有的标记】"
+        cand_path.write_text(
+            json.dumps(
+                {
+                    "id": "w1",
+                    "title": "第 1 条",
+                    "source": "测试源",
+                    "body": "正文内容。" * 60 + marker,   # 开头 400 字里看不到这个标记
+                    "gold": {"category": None, "importance": None},
+                },
+                ensure_ascii=False,
+            ) + "\n",
+            encoding="utf-8",
+        )
+        lab_path.write_text("# 表头\n\nw1 |  | \n", encoding="utf-8")
+
+        real_cand = make_eval_set.CANDIDATES_PATH
+        real_lab = make_eval_set.LABELS_PATH
+        make_eval_set.CANDIDATES_PATH = cand_path
+        make_eval_set.LABELS_PATH = lab_path
+
+        # 依次输入：看全文 → 选分类 2 → 重要性输入 0（应被拒绝）→ 输入 4 → 退出
+        scripted = iter(["m", "2", "0", "4", "q"])
+        real_input = builtins.input
+
+        def fake_input(prompt: str = "") -> str:
+            try:
+                return next(scripted)
+            except StopIteration:
+                raise EOFError
+
+        builtins.input = fake_input
+        buffer = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buffer):
+                make_eval_set.cmd_wizard(None)
+            wizard_out = buffer.getvalue()
+            saved_labels = lab_path.read_text(encoding="utf-8")
+        finally:
+            builtins.input = real_input
+            make_eval_set.CANDIDATES_PATH = real_cand
+            make_eval_set.LABELS_PATH = real_lab
+
+    check("按 m 真的能看全文（界面承诺的键必须存在）",
+          marker in wizard_out,
+          "按了 m 却看不到全文 —— 用户会以为自己按错了")
+    check("按 m 不会被当成无效输入",
+          "'m'" not in wizard_out, "把 m 当成看不懂的输入回给用户了")
+    check("重要性不接受「拿不准」（0）",
+          "'0'" in wizard_out,
+          "如果 0 被当成拿不准，用户刚选好的分类会在存盘时一起丢掉")
+    check("向导最终把答案正确存了下来",
+          "w1 | 模型与技术 | 4" in saved_labels,
+          f"实际存成：{[l for l in saved_labels.splitlines() if l.startswith('w1')]}")
+
     # ---------------------------------------------------------- ④ 分发层
     print("\n[④ 分发层 · 日报渲染与审核解析]")
 
