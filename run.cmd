@@ -79,7 +79,7 @@ python tools\status.py --help
 exit /b %ERRORLEVEL%
 
 :c_status
-python tools\status.py
+python tools\status.py %REST%
 exit /b %ERRORLEVEL%
 
 :c_doctor

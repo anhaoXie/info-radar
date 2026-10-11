@@ -365,56 +365,62 @@ def show_ledger() -> int:
 
 def show_help() -> int:
     print()
-    print("  info-radar · 个人 AI 工作系统")
+    print("  info-radar · 你的行业情报助手")
     print("  " + hr("-"))
-    print("  先跑这三个（不联网，不花钱，出错先看它们）")
-    print("    run.cmd status          我走到哪了")
-    print("    run.cmd selftest        离线自检纯逻辑（65 项，毫秒级）")
-    print("    run.cmd mocktest        全链路自检：本地假服务端验证真客户端（68 项）")
-    print("    run.cmd doctor          环境自检")
+    print("  你现在会用到的")
+    print("    双击【开始标注.cmd】    给 20 篇文章分类。一条一条问你，按数字就行")
+    print("    run.cmd status          看现在该做什么（不确定就跑这个）")
+    print("    run.cmd help            看这份说明")
     print()
-    print("  模型（要联网，要密钥）")
-    print("    run.cmd probe           探测模型接口，列出你账号真实可用的模型")
-    print("    run.cmd eval -Limit 3   花几分钱跑 3 条，验证链路")
-    print("    run.cmd eval            跑完整评估，得到基线数字")
+    print("  分类填完之后")
+    print("    run.cmd compile         把那 20 条变成一份「标准答案」")
+    print("    run.cmd eval --stub     先预览一次，不花钱")
+    print("    run.cmd eval            跑第一次测试，看 AI 准不准")
     print()
-    print("  数据（S1 / S2）")
+    print("  想让 AI 自动干活（要先申请一个 AI 密钥，填进 .env）")
+    print("    run.cmd probe           检查密钥能不能用")
+    print("    run.cmd pipeline        让 AI 读完所有文章")
+    print("    run.cmd digest          生成一份日报 + 一份让你检查的清单")
+    print("    run.cmd review          检查 AI 交上来的东西")
+    print()
+    print("  出问题的时候")
+    print("    run.cmd selftest        检查系统本身有没有坏（不花钱、不联网）")
+    print("    run.cmd health          看它最近跑得怎么样")
+    print("    run.cmd ledger          今天花了多少")
+    print()
+    print("  " + hr("-"))
+    print("  下面是全部命令（技术细节，看不懂可以先跳过）")
+    print()
+    print("  数据")
     print("    run.cmd inbox           导入 data/inbox/ 里的本地文档")
     print("    run.cmd collect         抓取 config/sources.json 里的 RSS 源")
-    print("    run.cmd sources         检查信息源是否还活着")
+    print("    run.cmd sources         检查信息源是否还活着（会报每个源给多少可用正文）")
+    print("    run.cmd sample -N 20    重新抽 20 条样本（会覆盖已有的 labels.txt）")
+    print("    run.cmd wizard          和双击【开始标注.cmd】效果一样")
+    print("    run.cmd labels          看标注进度")
     print()
-    print("  工作流（S3）")
+    print("  工作流")
     print("    run.cmd pipeline --dry-run    只看要处理哪些，不发请求、不要密钥")
     print("    run.cmd pipeline --stub       用假模型跑通链路，不花钱")
-    print("    run.cmd pipeline              真正处理（要密钥）")
     print("    run.cmd pipeline --retry-failed  重试之前失败的条目")
+    print("    run.cmd eval -Limit 3         先花几分钱试 3 条")
     print()
-    print("  分发与审核（S4）")
-    print("    run.cmd digest                从最新一轮结果生成日报 + 审核表")
-    print("    run.cmd review                看历史产出")
-    print("    run.cmd review --apply <时间戳>  应用审核：生成终版 + 回流评估集")
-    print("    run.cmd review --stats        评估集来源统计")
+    print("  分发与审核")
+    print("    run.cmd review --apply <时间戳>  应用你的审核：生成终版 + 回流成新真值")
+    print("    run.cmd review --stats        看评估集里有多少条来自你的审核")
     print()
-    print("  自动化（S5）")
-    print("    run.cmd health                看任务健康表（不联网、不要密钥，每天先看它）")
+    print("  自动化")
     print("    run.cmd daily --stub          用假模型跑一遍完整流程")
-    print("    run.cmd daily --no-collect    只处理 inbox，不抓 RSS")
     print("    run.cmd daily                 真正跑一次（要密钥）")
+    print("    run.cmd daily --no-collect    只处理 inbox，不抓 RSS")
     print("    run.cmd daily --continue-on-error  失败后继续（默认会停下）")
+    print("    run.cmd mocktest              全链路自检：本地假服务端（99 项）")
+    print("    run.cmd doctor                环境自检")
+    print("    run.cmd status --full         分层的技术视图")
     print()
-    print("  标注（唯一不能交给 AI 的一步，也是你现在唯一要做的事）")
-    print("    双击 info-radar 文件夹里的【开始标注.cmd】  ← 最简单，不用敲命令")
-    print("    run.cmd wizard           效果一样，如果你习惯用命令行")
-    print("    run.cmd labels           看标注进度")
-    print("    run.cmd compile          填完之后生成评估集")
-    print("    （也可以手工填 eval/labels.txt —— 见 eval/worksheet-lite.md）")
-    print()
-    print("  账目")
-    print("    run.cmd ledger          今天花了多少、慢不慢、哪一步在花钱")
-    print()
-    print("  当前状态：S0（地基）—— 等你在 .env 里填 key")
-    print("  必读：docs/03-完整走一遍.md  ← 手把手走查，从这里开始")
-    print("        docs/00-架构蓝图.md    ← 六层结构的心智模型")
+    print("  " + hr("-"))
+    print("  想系统了解一遍：docs/03-完整走一遍.md  ← 手把手走查，从这里开始")
+    print("  想知道为什么这么设计：docs/00-架构蓝图.md")
     print()
     return 0
 
@@ -533,18 +539,148 @@ def eval_set_origins() -> dict:
     return counts
 
 
+def show_status_plain() -> int:
+    """说人话的状态面板。
+
+    【为什么要重写这个】
+
+    原来的面板长这样：
+
+        S0   地基 · 密钥与账本                   [待办]
+        S1   评估层 · 基线与判据                  [待办]
+        S2   数据层 · 抓取与去重                  [OK]
+        S3   工作流层 · 编排与迭代                 [待办]
+        S4   分发层 · 审核与归档                  [待办]
+        S5   权限层 · 限额与无人值守                [待办]
+
+    对一个不懂技术的人，这六个词毫无意义，而且五个 [待办] 看起来像"有五个地方坏了"。
+    那些词是我造出来的，用来组织代码的，不是用来跟人说话的。
+
+    所以这一版只回答三个问题：
+        已经做好了什么？
+        现在要我做什么？
+        做完之后能得到什么？
+    """
+    raw_count = count_files("data/raw")
+    inbox_count = count_inbox_files()
+    labels_now = label_progress()
+    state = eval_set_state()
+    results = find_eval_results()
+    has_key = (PROJECT_ROOT / ".env").exists() and any(
+        line.strip() and not line.strip().startswith("#") and "=" in line
+        and line.split("=", 1)[1].strip()
+        for line in (PROJECT_ROOT / ".env").read_text(encoding="utf-8-sig").splitlines()
+    )
+    result_count = count_results()
+    digest_count = count_files("out/digests")
+
+    print()
+    print("=" * 66)
+    print("  你的行业情报助手")
+    print("=" * 66)
+
+    # ---------------- 已经做好了什么
+    print()
+    print("  【已经做好了】")
+    if raw_count or inbox_count:
+        print(f"    ✓  抓到了 {raw_count} 篇文章")
+    else:
+        print("    ·  还没有文章。先跑：run.cmd collect")
+    if labels_now:
+        done, total = labels_now
+        if done >= total:
+            print(f"    ✓  你给全部 {total} 条都分好类了")
+        else:
+            print(f"    ·  抽出了 {total} 条等你分类（已分 {done} 条）")
+
+    # ---------------- 现在要你做什么（一次只给一件事）
+    print()
+    print("  【现在等你做】")
+    next_action_given = False
+
+    if raw_count == 0 and inbox_count == 0:
+        print("    →  先抓一批文章：")
+        print("         run.cmd collect")
+        next_action_given = True
+
+    elif labels_now and labels_now[0] < labels_now[1]:
+        done, total = labels_now
+        print("    →  给这 %d 篇文章分类" % total)
+        print()
+        print("       双击 info-radar 文件夹里的【开始标注.cmd】")
+        print("       它一条一条问你，你按一个数字就行。不用打中文。")
+        print()
+        print(f"       进度：{done}/{total}。随时可以关掉窗口，下次接着来。")
+        next_action_given = True
+
+    elif state != "real":
+        print("    →  你分好类了。现在把它变成一份「标准答案」：")
+        print("         run.cmd compile")
+        next_action_given = True
+
+    elif not has_key:
+        print("    →  去申请一个 AI 服务的密钥，填进 .env 文件")
+        print()
+        print("       （这是唯一要花钱的一步，通常几分钱。")
+        print("        具体去哪申请、怎么填，看 docs/03-完整走一遍.md 的第 4 步）")
+        next_action_given = True
+
+    elif not results or all(
+        json.loads(p.read_text(encoding="utf-8")).get("metrics", {}).get("stub")
+        for p in results
+        if p.exists()
+    ):
+        print("    →  跑第一次测试，看看 AI 做得对不对：")
+        print("         run.cmd eval -Limit 3     （先花几分钱试 3 条）")
+        next_action_given = True
+
+    if not next_action_given:
+        print("    →  让 AI 处理全部文章，写一份日报：")
+        print("         run.cmd pipeline")
+        print("         run.cmd digest")
+
+    # ---------------- 做完之后能得到什么
+    print()
+    print("  【做完上面那步之后，你就能】")
+    if labels_now and labels_now[0] < labels_now[1]:
+        print("    ·  让 AI 自动读这 %d 篇文章，每天写一份行业日报" % max(raw_count, 1))
+        print("    ·  每周看一眼 AI 交上来的东西，顺手改几条，它就越来越准")
+        print()
+        print("    但这两件事都还需要一个 AI 密钥 —— 那是下一步的事，先不用管。")
+    else:
+        print("    ·  让 AI 自动读这 %d 篇文章，每天写一份行业日报" % max(raw_count, 1))
+        print("    ·  它做得准不准，你有一个数字能看（而不是凭感觉）")
+
+    # ---------------- 警报：必须显眼
+    if (PROJECT_ROOT / "out" / "ALERT.md").exists():
+        print()
+        print("  " + "!" * 62)
+        print("  !! 有东西连续失败了好几次，去 out/ALERT.md 看看")
+        print("  " + "!" * 62)
+
+    print()
+    print("  " + "-" * 64)
+    print("  想知道技术细节？   run.cmd status --full")
+    print("  报错了不知道怎么办？ run.cmd selftest")
+    print()
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--help", action="store_true")
     parser.add_argument("--ledger", action="store_true")
     parser.add_argument("--progress", action="store_true")
+    parser.add_argument("--full", action="store_true", help="显示分层的技术视图")
     args = parser.parse_args()
 
     if args.help:
         return show_help()
     if args.ledger:
         return show_ledger()
-    return show_progress()
+    if args.full or args.progress:
+        return show_progress()
+    return show_status_plain()
 
 
 if __name__ == "__main__":
