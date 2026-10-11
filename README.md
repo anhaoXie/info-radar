@@ -9,12 +9,13 @@
 
 ---
 
-## 先读这两份
+## 先读这三份
 
 | 文件 | 它解决什么问题 |
 |---|---|
 | [`docs/00-架构蓝图.md`](docs/00-架构蓝图.md) | **六层结构是什么，为什么顺序是反直觉的**。这是你要内化的东西，代码只是它的投影 |
 | [`docs/01-学习路线.md`](docs/01-学习路线.md) | 六个阶段，每阶段一个**能用眼睛验证**的产出。做不到就不进入下一阶段 |
+| [`docs/02-S1-取真实样本与标注.md`](docs/02-S1-取真实样本与标注.md) | **实测数据推翻了原设计的地方**。RSS 给不出全文，以及由此逼出来的架构修正 |
 
 ---
 
@@ -22,14 +23,37 @@
 
 | 阶段 | 建哪一层 | 状态 |
 |---|---|---|
-| **S0** | ② 模型层 + ⑤ 权限层 —— 密钥、模型适配、审计账本 | 🔄 **代码已就绪，等你的 key** |
-| S1 | ⓪ 评估层 —— 判据、真值、基线 | ⬜ 代码已就绪，等 S0 通过 |
-| S2 | ① 数据层 —— 抓取、去重、缓存 | ⬜ |
+| **S0** | ② 模型层 + ⑤ 权限层 —— 密钥、模型适配、审计账本 | ✅ 代码就绪，等你的 key |
+| **S1** | ⓪ 评估层 —— 判据、真值、基线 | 🔄 **标注链路已通，等你放文档进 `data/inbox/`** |
+| **S2** | ① 数据层 —— 抓取、去重、缓存 | 🔄 抓取与去重已通；**实测发现 RSS 不给全文，详见 doc 02** |
 | S3 | ③ 工作流层 —— 编排与按数字迭代 | ⬜ |
 | S4 | ④ 分发 + 审核层 —— 归档、人工队列、反馈回流 | ⬜ |
 | S5 | ⑤ 权限 + 自动化 —— 限额、定时、大声失败 | ⬜ |
 
 随便什么时候想知道自己到哪了：`run.cmd status`
+
+---
+
+## 从这里开始（S1 的入口）
+
+**跳过这一步，你后面所有的"改进了"都无法被验证。**
+
+```powershell
+# 1. 把你本来就会认真读的 20 篇文档丢进 data/inbox/
+#    （.md / .txt / .html / .json 都行，详见 data/inbox/_说明.md）
+run.cmd inbox            # 导入
+
+run.cmd sample -N 20     # 抽 20 条，生成标注表和工作纸
+run.cmd labels           # 看进度
+run.cmd compile          # 编译成评估集
+```
+
+标注时打开 `eval/worksheet.md`（每篇正文都在里面），
+把判断写进 `eval/labels.txt`，格式 `p001 | 分类 | 重要性`，拿不准就写 `?`。
+
+> **为什么不能放"随便找的 20 篇"**：标真值时你要读完原文才能判断
+> "模型有没有漏要点、有没有编事实"。文档你自己都不在乎，就不会有耐心认真标；
+> 标得敷衍，整个评估就是假的 —— 你会得到一个数字，然后基于一个假数字做决定。
 
 ---
 
@@ -51,6 +75,7 @@ ZHIPU_API_KEY=你的key
 ### 2. 自检 + 探测
 
 ```powershell
+run.cmd selftest   # 离线自检全部逻辑，65 项，不联网不花钱
 run.cmd doctor     # 环境自检，不联网
 run.cmd probe      # 联网，真实调用一次，并列出你账号可用的模型名
 ```
@@ -86,12 +111,13 @@ run.cmd eval            # 跑全部，得到基线数字
 info-radar/
 ├─ docs/                     你要内化的东西
 │   ├─ 00-架构蓝图.md          六层结构与它的边界
-│   └─ 01-学习路线.md          六阶段路线与验收标准
+│   ├─ 01-学习路线.md          六阶段路线与验收标准
+│   └─ 02-S1-取真实样本与标注.md  实测推翻原设计的地方
 │
 ├─ config/                   ← 改行为不用改代码
 │   ├─ task.json             ⓞ 任务定义（提示词 + 分类体系 + 输出结构）
 │   ├─ providers.json        ② 模型注册表（换厂商只改这里）
-│   ├─ sources.json          ① 信息源（S2 用）
+│   ├─ sources.json          ① 信息源（RSS，只负责"发现"）
 │   └─ policy.json           ⑤ 权限：限额、白名单、脱敏策略
 │
 ├─ src/
@@ -100,17 +126,27 @@ info-radar/
 │   ├─ llm.py                ② 模型层：通话 / 重试 / 计量 / 留痕
 │   ├─ task.py               ⓞ 任务 → 消息 与 输出校验
 │   ├─ evaluate.py           ⓪ 评估：基线、回归、人工审核表
-│   ├─ collect.py            ① 数据层                          （S2）
+│   ├─ collect.py            ① 数据层：RSS 抓取 + 本地投喂 + 两级去重
 │   ├─ pipeline.py           ③ 工作流层                        （S3）
 │   └─ archive.py            ④ 分发层                          （S4）
 │
-├─ tools/probe.py            探测与自检：把"我以为"换成"服务端说"
+├─ tools/
+│   ├─ probe.py              探测与自检：把"我以为"换成"服务端说"
+│   ├─ selftest.py           离线自检全部逻辑（65 项，不花钱）
+│   ├─ make_eval_set.py      抽样 / 标注表 / 编译评估集
+│   └─ status.py             进展总览与账本速览
+│
 ├─ eval/
 │   ├─ eval_set.jsonl        真值样本（现在是占位数据，你要替换）
 │   ├─ RUBRIC.md             判定标准 —— 比代码重要
+│   ├─ worksheet.md          标注工作纸（跑 sample 后生成）
+│   ├─ labels.txt            你要填的文件（跑 sample 后生成）
 │   └─ CHANGELOG.md          改动记录（S3 起必须写）
 │
-├─ data/                     ① 原始抓取与缓存
+├─ data/
+│   ├─ inbox/                ① 本地投喂：你真正关心的文档放这里
+│   ├─ raw/                  ① 归一化后的原文
+│   └─ cache/                ① 索引与源健康状态
 └─ out/
     ├─ digests/              ④ 归档产出
     ├─ eval/                 ⓪ 评估结果与审核表
@@ -122,15 +158,25 @@ info-radar/
 ## 常用命令
 
 ```powershell
+# ---- 先跑这两个：不联网、不花钱 ----
 run.cmd status                        # 我走到哪了
-run.cmd doctor                        # 环境自检（不联网）
-run.cmd selftest                      # 离线自检全部逻辑（不联网、不花钱，37 项）
+run.cmd selftest                      # 离线自检全部逻辑（65 项）
+
+# ---- 数据与标注（S1 的核心工作）----
+run.cmd inbox                         # 导入 data/inbox/ 里的本地文档
+run.cmd collect                       # 抓取 RSS 源（只负责发现线索）
+run.cmd sources                       # 信息源还活着吗
+run.cmd sample -N 20                  # 抽 20 条，生成标注表 + 阅读工作纸
+run.cmd labels                        # 看标注进度
+run.cmd compile                       # 编译成 eval/eval_set.jsonl
+
+# ---- 模型与评估（要联网、要密钥）----
+run.cmd doctor                        # 环境自检
 run.cmd probe                         # 探测模型真实可用性
 run.cmd probe -Provider zhipu         # 只看一家
 run.cmd eval -Limit 3                 # 快跑三条
 run.cmd eval                          # 完整评估
 run.cmd ledger                        # 今天花了多少、慢不慢、哪一步在花钱
-run.cmd sources                       # 信息源还活着吗（S2）
 ```
 
 > **先跑 `selftest` 再跑 `probe`。**

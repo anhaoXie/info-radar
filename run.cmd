@@ -7,11 +7,19 @@ REM  codepage, so non-ASCII comments get mangled and can break
 REM  parsing. All Chinese output comes from Python instead, where
 REM  encoding is one setting rather than a minefield.
 REM
+REM  This file must keep CRLF line endings. cmd.exe fails to resolve
+REM  batch labels in an LF-only file ("cannot find the batch label").
+REM
 REM  Usage:
 REM    run.cmd status
 REM    run.cmd doctor
 REM    run.cmd selftest
 REM    run.cmd probe
+REM    run.cmd collect
+REM    run.cmd inbox
+REM    run.cmd sample -N 20
+REM    run.cmd labels
+REM    run.cmd compile
 REM    run.cmd eval -Limit 3
 REM    run.cmd ledger
 REM ============================================================
@@ -26,18 +34,23 @@ if "%CMD%"=="" set "CMD=help"
 shift
 
 set "REST="
-:collect
-if "%~1"=="" goto collected
+:collect_args
+if "%~1"=="" goto args_ready
 set "REST=%REST% %~1"
 shift
-goto collect
-:collected
+goto collect_args
+:args_ready
 
 if /i "%CMD%"=="help"     goto :c_help
 if /i "%CMD%"=="status"   goto :c_status
 if /i "%CMD%"=="doctor"   goto :c_doctor
 if /i "%CMD%"=="selftest" goto :c_selftest
 if /i "%CMD%"=="probe"    goto :c_probe
+if /i "%CMD%"=="collect"  goto :c_collect
+if /i "%CMD%"=="inbox"    goto :c_inbox
+if /i "%CMD%"=="sample"   goto :c_sample
+if /i "%CMD%"=="labels"   goto :c_labels
+if /i "%CMD%"=="compile"  goto :c_compile
 if /i "%CMD%"=="eval"     goto :c_eval
 if /i "%CMD%"=="sources"  goto :c_sources
 if /i "%CMD%"=="ledger"   goto :c_ledger
@@ -65,6 +78,26 @@ exit /b %ERRORLEVEL%
 
 :c_probe
 python tools\probe.py %REST%
+exit /b %ERRORLEVEL%
+
+:c_collect
+python src\collect.py %REST%
+exit /b %ERRORLEVEL%
+
+:c_inbox
+python src\collect.py --inbox
+exit /b %ERRORLEVEL%
+
+:c_sample
+python tools\make_eval_set.py --sample %REST%
+exit /b %ERRORLEVEL%
+
+:c_labels
+python tools\make_eval_set.py --status
+exit /b %ERRORLEVEL%
+
+:c_compile
+python tools\make_eval_set.py --compile %REST%
 exit /b %ERRORLEVEL%
 
 :c_eval

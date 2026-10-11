@@ -17,11 +17,15 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+from collections import Counter
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "tools"))
 
+import make_eval_set  # noqa: E402
+from src import collect as collect_mod  # noqa: E402
 from src import task as task_mod  # noqa: E402
 from src.config import load_policy, load_task  # noqa: E402
 from src.ledger import Budget, BudgetExceeded, Ledger  # noqa: E402
@@ -235,6 +239,141 @@ def main() -> int:
         lambda: LLMClient("bad", providers_cfg=unlisted, policy_cfg=policy),
         contains="probe.py",
     )
+
+    # ---------------------------------------------------------- ① 数据层
+    print("\n[① 数据层 · 源解析与归一]")
+
+    rss_fixture = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Test Feed</title>
+    <item>
+      <title>RSS item with content:encoded</title>
+      <link>https://example.com/a?utm_source=x&amp;id=7</link>
+      <pubDate>Mon, 06 Jan 2025 10:00:00 +0800</pubDate>
+      <description>short</description>
+      <content:encoded><![CDATA[<p>Full &amp; rich body text here.</p>]]></content:encoded>
+    </item>
+    <item>
+      <title>RSS item with only description</title>
+      <link>https://example.com/b</link>
+      <description>Only a one-line summary.</description>
+    </item>
+  </channel>
+</rss>"""
+
+    atom_fixture = b"""<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Atom Test</title>
+  <entry>
+    <title>Atom entry</title>
+    <link rel="alternate" href="https://example.com/c"/>
+    <updated>2025-01-07T12:00:00Z</updated>
+    <summary>Summary text</summary>
+  </entry>
+</feed>"""
+
+    rss_items = collect_mod.parse_feed(rss_fixture, "测试源")
+    check("RSS 能解析出条目", len(rss_items) == 2, f"实际 {len(rss_items)}")
+    check("content:encoded 优先于 description",
+          "Full & rich body text here." in rss_items[0]["body"],
+          f"实际 body={rss_items[0]['body']!r}")
+    check("HTML 标签被去掉", "<p>" not in rss_items[0]["body"])
+    check("链接里的 utm 追踪参数被剥掉",
+          rss_items[0]["url"] == "https://example.com/a?id=7",
+          f"实际 {rss_items[0]['url']}")
+    check("pubDate 被取出", bool(rss_items[0]["published"]))
+    check("只有 description 的条目也能解析",
+          rss_items[1]["body"] == "Only a one-line summary.",
+          f"实际 {rss_items[1]['body']!r}")
+
+    atom_items = collect_mod.parse_feed(atom_fixture, "测试源")
+    check("Atom 能解析出条目", len(atom_items) == 1, f"实际 {len(atom_items)}")
+    check("Atom 的 link href 属性被取出",
+          atom_items[0]["url"] == "https://example.com/c",
+          f"实际 {atom_items[0]['url']}")
+    check("Atom 的 summary 被取出", "Summary text" in atom_items[0]["body"])
+
+    check("内容指纹忽略标点差异",
+          collect_mod.content_hash("标题", "正文。") == collect_mod.content_hash("标题", "正文"),
+          "标点不同但内容相同，指纹应该一样")
+    check("不同正文的指纹不同",
+          collect_mod.content_hash("标题", "正文A") != collect_mod.content_hash("标题", "正文B"))
+
+    policy_now = load_policy()
+    check("白名单外的新源会被拦下",
+          collect_mod.missing_feed_hosts(
+              [{"url": "https://new-source.example.com/feed"}], policy_now
+          ) == ["new-source.example.com"])
+    check("白名单内的源不会误报",
+          collect_mod.missing_feed_hosts(
+              [{"url": "https://www.qbitai.com/feed"}], policy_now
+          ) == [])
+
+    # ---------------------------------------------------------- 本地投喂
+    print("\n[① 数据层 · 本地投喂]")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_dir = Path(tmp)
+
+        md_path = tmp_dir / "doc.md"
+        md_path.write_text("# 我的标题\n\n这是正文内容。\n", encoding="utf-8")
+        parsed = collect_mod.read_inbox_file(md_path)
+        check("Markdown 的 # 标题被取出", parsed is not None and parsed[0] == "我的标题", f"实际 {parsed}")
+        check("Markdown 正文不含标题行", parsed is not None and "我的标题" not in parsed[1])
+
+        html_path = tmp_dir / "doc.html"
+        html_path.write_text(
+            "<html><head><title>网页标题</title></head><body><p>段落一</p></body></html>",
+            encoding="utf-8",
+        )
+        parsed = collect_mod.read_inbox_file(html_path)
+        check("HTML 的 title 被取出", parsed is not None and parsed[0] == "网页标题", f"实际 {parsed}")
+        check("HTML 标签被去掉", parsed is not None and "<p>" not in parsed[1])
+
+        json_path = tmp_dir / "doc.json"
+        json_path.write_text(json.dumps({"title": "JSON标题", "body": "JSON正文"}), encoding="utf-8")
+        check("JSON 的 title/body 被取出",
+              collect_mod.read_inbox_file(json_path) == ("JSON标题", "JSON正文"))
+
+        empty_path = tmp_dir / "empty.txt"
+        empty_path.write_text("   \n\n", encoding="utf-8")
+        check("空文件返回 None 而不是空字符串", collect_mod.read_inbox_file(empty_path) is None)
+
+    # ---------------------------------------------------------- 标注
+    print("\n[⓪ 评估层 · 标注解析与抽样]")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        labels_path = Path(tmp) / "labels.txt"
+        labels_path.write_text(
+            "# 注释行会被忽略\n"
+            "\n"
+            "aaa111 | 模型与技术 | 4\n"
+            "bbb222 | ? | ?\n"
+            "ccc333 | 产品发布 | 99\n"
+            "ddd444 |  | \n",
+            encoding="utf-8",
+        )
+        labels = make_eval_set.parse_labels(labels_path)
+        check("能解析正常标注", labels.get("aaa111") == ("模型与技术", 4, False), f"实际 {labels.get('aaa111')}")
+        check("问号被识别为不确定", labels.get("bbb222") == (None, None, True), f"实际 {labels.get('bbb222')}")
+        check("注释行与空行被忽略", "" not in labels)
+        check("越界的重要性先读进来，交给后面的校验去拦",
+              labels.get("ccc333") == ("产品发布", 99, False), f"实际 {labels.get('ccc333')}")
+        check("留空的行被识别为未填", labels.get("ddd444") == (None, None, False), f"实际 {labels.get('ddd444')}")
+
+    fake_items = (
+        [{"id": f"a{i}", "source": "源A", "body_chars": 1000 - i} for i in range(10)]
+        + [{"id": f"b{i}", "source": "源B", "body_chars": 900 - i} for i in range(10)]
+    )
+    picked = make_eval_set.pick_diverse(fake_items, 6, per_source_cap=6)
+    sources_used = Counter(item["source"] for item in picked)
+    check("抽样会在来源之间轮流", len(sources_used) == 2, f"实际只用到 {list(sources_used)}")
+    check("抽样遵守单源上限", all(v <= 6 for v in sources_used.values()))
+    check("抽样数量正确", len(picked) == 6, f"实际 {len(picked)}")
+
+    capped = make_eval_set.pick_diverse(fake_items, 20, per_source_cap=3)
+    check("单源上限卡死时不会死循环", len(capped) == 6, f"实际 {len(capped)}")
 
     # ---------------------------------------------------------- 结果
     print()

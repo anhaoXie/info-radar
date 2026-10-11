@@ -17,7 +17,18 @@
       "ark.cn-beijing.volces.com",
       "api.deepseek.com"
     ],
-    "_note": "S2 阶段接信息源时，新的域名必须显式加进来。默认拒绝，而不是默认允许。",
+    "_note": "默认拒绝，而不是默认允许。这是【模型调用】能去的域名。",
+
+    "feed_hosts": [
+      "www.qbitai.com",
+      "www.infoq.cn",
+      "blog.google",
+      "deepmind.google",
+      "www.technologyreview.com",
+      "openai.com"
+    ],
+    "_feed_note": "这是【信息源】能去的域名，和模型域名分开列。分开的理由：这两类出网的后果不同 —— 前者是把数据发出去，后者是把数据拿回来。新增信息源时两处都要改（sources.json 和这里），这个额外步骤是故意的：出网应该是一次有意识的决定，而不是顺手加一行。",
+
     "timeout_seconds": 60,
     "max_retries": 3
   },

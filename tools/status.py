@@ -44,6 +44,27 @@ def count_files(relative: str) -> int:
     return len([p for p in directory.iterdir() if p.is_file() and p.name != ".gitkeep"])
 
 
+def count_inbox_files() -> int:
+    """收件箱里真正会被导入的文件数。
+
+    必须排除 _ 开头的文件，和导入器用同一套规则 ——
+    否则状态面板会说"待导入 1 篇"，而那个文件永远不会被导入。
+    一个会撒谎的状态面板，比没有状态面板更坏。
+    """
+    directory = PROJECT_ROOT / "data" / "inbox"
+    if not directory.is_dir():
+        return 0
+    return len(
+        [
+            p
+            for p in directory.iterdir()
+            if p.is_file()
+            and not p.name.startswith("_")
+            and p.suffix.lower() in {".md", ".markdown", ".txt", ".html", ".htm", ".json"}
+        ]
+    )
+
+
 def stage_line(stage: str, name: str, status: str) -> str:
     return f"  {stage:<4} {name:<28} [{status}]"
 
@@ -71,7 +92,40 @@ def show_progress() -> int:
 
     # ---- S1
     results = find_eval_results()
-    print(stage_line("S1", "评估层 · 基线与判据", "OK" if results else "待办"))
+    state = eval_set_state()
+    rows = count_eval_set_rows()
+    if results:
+        s1_status = "OK"
+    elif state == "real":
+        s1_status = "有评估集"
+    else:
+        s1_status = "待办"
+    print(stage_line("S1", "评估层 · 基线与判据", s1_status))
+
+    label_state = "real" if state == "real" else ("占位" if state == "placeholder" else "缺失")
+    print(f"       评估集 {row_count_text(rows)}（{label_state}）")
+    if state == "placeholder":
+        print("       ^ 现在是占位数据，只能验证链路，不能代表真实效果")
+        print("         用 run.cmd inbox 导入你自己的文档，再 run.cmd sample -N 20")
+
+    candidates_path = PROJECT_ROOT / "eval" / "candidates.jsonl"
+    labels_path = PROJECT_ROOT / "eval" / "labels.txt"
+    if candidates_path.exists():
+        try:
+            total = len([ln for ln in candidates_path.read_text(encoding="utf-8").splitlines() if ln.strip()])
+        except OSError:
+            total = 0
+        filled = 0
+        if labels_path.exists():
+            for line in labels_path.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#") or "|" not in stripped:
+                    continue
+                parts = [p.strip() for p in stripped.split("|")]
+                if len(parts) >= 3 and parts[1] and parts[2]:
+                    filled += 1
+        print(f"       标注进度 {filled}/{total}" + ("   <- 填完跑 run.cmd compile" if filled < total else "   <- 跑 run.cmd compile"))
+
     if results:
         latest = results[-1]
         try:
@@ -79,7 +133,7 @@ def show_progress() -> int:
             metrics = payload.get("metrics", {})
             accuracy = metrics.get("category_accuracy")
             accuracy_text = f"{accuracy * 100:.1f}%" if accuracy is not None else "无真值"
-            placeholder = "  [占位数据，请替换]" if metrics.get("placeholder_data") else ""
+            placeholder = "  [占位数据]" if metrics.get("placeholder_data") else ""
             print(f"       最近一次 {latest.name}{placeholder}")
             print(
                 f"       格式合规 {metrics.get('format_ok_rate', 0) * 100:.1f}%   "
@@ -91,14 +145,31 @@ def show_progress() -> int:
             )
         except (json.JSONDecodeError, OSError):
             print("       （最近一次结果读不出来，可能写坏了）")
-    else:
-        print("       还没有基线。跑 run.cmd eval -Limit 3 先验证链路")
 
-    # ---- S2 / S3 / S4
+    # ---- S2
     raw_count = count_files("data/raw")
+    inbox_count = count_inbox_files()
     print(stage_line("S2", "数据层 · 抓取与去重", "OK" if raw_count else "待办"))
-    print(f"       data/raw 里 {raw_count} 个文件")
+    print(f"       库内文档 {raw_count} 篇   data/inbox 待导入 {inbox_count} 篇")
 
+    source_state = load_sources_state()
+    if source_state:
+        broken = {
+            name: info
+            for name, info in source_state.items()
+            if not info.get("ok")
+        }
+        healthy = len(source_state) - len(broken)
+        print(f"       信息源 {healthy}/{len(source_state)} 正常")
+        for name, info in broken.items():
+            streak = int(info.get("consecutive_failures") or 0)
+            print(f"         [!!] {name}  连续失败 {streak} 次")
+            if info.get("error"):
+                print(f"              {str(info['error']).splitlines()[0][:80]}")
+        if broken:
+            print("       ^ 静态失败不会自己恢复。跑 run.cmd sources 复查，或把它停用。")
+
+    # ---- S3 / S4 / S5
     digest_count = count_files("out/digests")
     print(stage_line("S3", "工作流层 · 编排与迭代", "OK" if digest_count else "待办"))
     print(stage_line("S4", "分发层 · 审核与归档", "进行中" if digest_count else "待办"))
@@ -106,9 +177,18 @@ def show_progress() -> int:
 
     print()
     print(hr())
-    print("  下一步看 README.md 的『三步跑起来』")
+    if state == "placeholder" and not results:
+        print("  下一步：run.cmd inbox —— 把你真正关心的文档丢进 data/inbox/")
+    elif state != "real":
+        print("  下一步：run.cmd sample -N 20")
+    else:
+        print("  下一步：run.cmd eval")
     print()
     return 0
+
+
+def row_count_text(count: int) -> str:
+    return f"{count} 条" if count else "空"
 
 
 def show_ledger() -> int:
@@ -184,18 +264,59 @@ def show_help() -> int:
     print()
     print("  info-radar · 个人 AI 工作系统")
     print("  " + hr("-"))
-    print("  run.cmd doctor          环境自检（不联网，出问题先跑这个）")
-    print("  run.cmd selftest        离线自检全部逻辑（不联网，不花钱）")
-    print("  run.cmd probe           探测模型接口（联网，验证真实可用性）")
-    print("  run.cmd eval            跑评估集，得到基线数字")
-    print("  run.cmd eval -Limit 3   只跑 3 条，先验证链路通不通")
-    print("  run.cmd sources         检查信息源是否还活着（S2 阶段）")
-    print("  run.cmd ledger          看今天的账本（花了多少、慢不慢）")
-    print("  run.cmd status          看当前进展全貌")
+    print("  先跑这两个（不联网，不花钱，出错先看它们）")
+    print("    run.cmd status          我走到哪了")
+    print("    run.cmd selftest        离线自检全部逻辑（65 项）")
+    print("    run.cmd doctor          环境自检")
+    print()
+    print("  模型（要联网，要密钥）")
+    print("    run.cmd probe           探测模型接口，列出你账号真实可用的模型")
+    print("    run.cmd eval -Limit 3   花几分钱跑 3 条，验证链路")
+    print("    run.cmd eval            跑完整评估，得到基线数字")
+    print()
+    print("  数据（S1 / S2）")
+    print("    run.cmd inbox           导入 data/inbox/ 里的本地文档")
+    print("    run.cmd collect         抓取 config/sources.json 里的 RSS 源")
+    print("    run.cmd sources         检查信息源是否还活着")
+    print()
+    print("  标注（S1 的核心工作，唯一不能交给 AI 的一步）")
+    print("    run.cmd sample -N 20    抽 20 条，生成标注表和阅读工作纸")
+    print("    run.cmd labels          看标注进度")
+    print("    run.cmd compile         把标注编译成 eval/eval_set.jsonl")
+    print()
+    print("  账目")
+    print("    run.cmd ledger          今天花了多少、慢不慢、哪一步在花钱")
     print()
     print("  当前状态：S0（地基）—— 等你在 .env 里填 key")
+    print("  必读：docs/00-架构蓝图.md")
     print()
     return 0
+
+
+def load_sources_state() -> dict:
+    path = PROJECT_ROOT / "data" / "cache" / "sources-state.json"
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8")).get("sources", {})
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def eval_set_state() -> str:
+    """判断评估集是占位数据、真实数据，还是根本没有。"""
+    path = PROJECT_ROOT / "eval" / "eval_set.jsonl"
+    if not path.exists():
+        return "missing"
+    text = path.read_text(encoding="utf-8")
+    return "placeholder" if "_placeholder" in text else "real"
+
+
+def count_eval_set_rows() -> int:
+    path = PROJECT_ROOT / "eval" / "eval_set.jsonl"
+    if not path.exists():
+        return 0
+    return len([line for line in path.read_text(encoding="utf-8").splitlines() if line.strip() and not line.startswith("#")])
 
 
 def main() -> int:

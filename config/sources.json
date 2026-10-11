@@ -1,17 +1,76 @@
 {
   "_layer": "① 数据层",
-  "_status": "本文件在 S2 阶段才会被代码读取。现在放在这里，是为了让你先想清楚『料从哪来』。",
   "_readme": "优先用 RSS / Atom / 官方 API。能拿契约就不要去解析别人的网页 —— 网页会改版，改版就静默失效。",
-  "_how_to_add": "复制一个块，改 name / url / category_hint。url 必须是以 .xml 或 /feed 结尾的订阅地址，不是网页地址。",
-  "_verify": "加完之后跑 `python tools/probe.py --check-sources`，它会真的去抓一次，告诉你哪个源是死的。",
+  "_status": "下面这 6 个源是我【实测过】的。深色的是活的，灰色的是死的，留着给你看反面教材。",
+  "_how_to_add": "复制一个块，改 name / url。url 必须是以 .xml、/feed 或 /rss 结尾的订阅地址，不是网页地址。",
+  "_how_to_verify": "加完先跑 `run.cmd sources`，它会真的去抓一次，告诉你哪个源是死的。不要跳过这一步 —— 一个死掉的源不会报错，它只会安静地返回零条。",
+  "_allowlist": "新增的源，域名必须同时加进 config/policy.json 的 network.feed_hosts。这是故意的：出网应该是一次有意识的决定，而两处都要改，正好让你无法'顺手'加一个源。",
+
+  "fetch": {
+    "timeout_seconds": 20,
+    "max_items_per_source": 30,
+    "max_body_chars": 3000,
+    "min_body_chars": 200,
+    "delay_between_sources": 1.0,
+    "_body_note": "max_body_chars 是成本的总闸门：正文越长，每次调用越贵。先设 3000，等看到真实成本再调。min_body_chars 用来挡掉那些只给一句话摘要的源 —— 用没有原文的样本去测'摘要准不准'是自欺欺人。"
+  },
 
   "sources": [
     {
-      "name": "占位示例 · 请替换成你真正要盯的源",
-      "url": "",
+      "name": "量子位",
+      "url": "https://www.qbitai.com/feed",
+      "enabled": true,
       "category_hint": "模型与技术",
+      "note": "实测可用，中文，AI 行业资讯密度高。"
+    },
+    {
+      "name": "InfoQ 中文",
+      "url": "https://www.infoq.cn/feed",
+      "enabled": true,
+      "category_hint": "模型与技术",
+      "note": "实测可用，偏工程与技术实践。"
+    },
+    {
+      "name": "Google AI Blog",
+      "url": "https://blog.google/technology/ai/rss/",
+      "enabled": true,
+      "category_hint": "产品发布",
+      "note": "实测可用，英文，大厂官方口径。"
+    },
+    {
+      "name": "DeepMind Blog",
+      "url": "https://deepmind.google/blog/rss.xml",
+      "enabled": true,
+      "category_hint": "模型与技术",
+      "note": "实测可用，英文，偏研究。"
+    },
+    {
+      "name": "MIT Technology Review",
+      "url": "https://www.technologyreview.com/feed/",
       "enabled": false,
-      "note": "把 url 填上、enabled 改成 true 才会被抓取。留空是为了让你第一次运行时不会误抓一堆无关内容。"
+      "category_hint": "观点与分析",
+      "note": "实测可用，但正文很长（单条可达数万字），会把 token 成本推高。要用就先把 max_body_chars 调小。"
+    },
+    {
+      "name": "OpenAI Blog",
+      "url": "https://openai.com/blog/rss.xml",
+      "enabled": false,
+      "category_hint": "产品发布",
+      "note": "实测可用，但订阅源里有 1200+ 条历史文章。第一次抓会灌进大量旧闻 —— 这类源要先考虑'只取最近 N 条'，而这正是 max_items_per_source 存在的理由。"
+    },
+    {
+      "name": "机器之心（已失效）",
+      "url": "https://www.jiqizhixin.com/rss",
+      "enabled": false,
+      "category_hint": "模型与技术",
+      "note": "反面教材：返回 HTTP 200，但 content-type 是 text/html，正文里一条 item 都没有。RSS 订阅地址已被重定向到首页。它不报错，只是安静地返回零条 —— 这就是'源会死'的样子。"
+    },
+    {
+      "name": "36氪（已失效）",
+      "url": "https://36kr.com/feed",
+      "enabled": false,
+      "category_hint": "融资并购",
+      "note": "反面教材：同上是 HTML。加源时必须先跑 run.cmd sources 验证，不要凭记忆填地址。"
     }
   ]
 }
