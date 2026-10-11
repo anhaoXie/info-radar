@@ -75,6 +75,21 @@ def main() -> int:
     check("指纹只留末 4 位", fingerprint("sk-abcdef1234567890") == "***7890")
     check("无关文本不被改动", mask("普通文本") == "普通文本")
 
+    # 填密钥时的两种常见复制错误，都只在调用时表现为"密钥被拒绝"，
+    # 于是人会回去反复重新申请 —— 而问题是复制多带了几个字。
+    from src.secrets import key_problems
+
+    check("正常的密钥不会被误报", key_problems("sk-abcdef1234567890abcdef") == [],
+          f"实际 {key_problems('sk-abcdef1234567890abcdef')}")
+    check("带空格会被指出", any("空格" in p for p in key_problems("sk-abc def1234567890")))
+    check("带换行会被指出", any("空格" in p for p in key_problems("sk-abcdef1234567890\n")))
+    check("太短会被指出", any("字符" in p for p in key_problems("sk-123")))
+    check("把「API Key:」也复制进来会被指出",
+          any("冒号" in p for p in key_problems("API Key: sk-abcdef1234567890")))
+    check("误把请求头写法当密钥会被指出",
+          any("bearer" in p.lower() for p in key_problems("Bearer sk-abcdef1234567890")))
+    check("空值会被指出", key_problems("") == ["是空的"])
+
     # ---------------------------------------------------------- ⓞ 解析
     print("\n[ⓞ 任务层 · 输出解析]")
 

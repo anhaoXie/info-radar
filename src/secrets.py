@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -87,6 +88,59 @@ def load_env(path: Path | None = None, *, refresh: bool = False) -> dict[str, st
     return merged
 
 
+# 已经提醒过的变量名。同类提醒只说一次 —— 一个每次调用都刷屏的警告，
+# 很快就会变成背景噪音，然后被无视。
+_WARNED_KEYS: set[str] = set()
+
+
+def key_problems(value: str) -> list[str]:
+    """这个值像不像一个密钥？返回问题列表（空列表 = 看起来正常）。
+
+    单独拆成纯函数，是为了它能被测试。
+    "填错密钥"是一条会让人反复重新申请、却永远修不好的路径 ——
+    值得有测试守着，而不是靠读代码相信它。
+    """
+    problems: list[str] = []
+    if not value:
+        return ["是空的"]
+    if any(ch.isspace() for ch in value):
+        problems.append("里面含空格或换行（多半是复制时多带了一段）")
+    if len(value) < 16:
+        problems.append(f"只有 {len(value)} 个字符（正常的密钥一般更长，可能没复制全）")
+    if ":" in value or "：" in value:
+        problems.append("里面含冒号（多半把「API Key:」这类文字也复制进来了）")
+    if value.lower().startswith("bearer"):
+        problems.append("以 bearer 开头（那是请求头里的写法，不是密钥本身）")
+    return problems
+
+
+def _sanity_check(name: str, value: str) -> None:
+    """在密钥进入系统的那一刻提醒一次。
+
+    最常见的两种填错方式都不会在填写时报错，只会在调用时表现为「密钥被拒绝」：
+
+        1. 复制时多带了一段（"API Key: sk-xxx"、"Bearer sk-xxx"、前后空格）
+        2. 只复制了一半
+
+    这时用户会以为是【自己申请的方式不对】，于是回去重新申请 ——
+    而真正的问题是复制多带了几个字。
+    **让错误指向错误的方向，比不报错更浪费时间。**
+
+    只是提醒，不阻止运行 —— 万一你的密钥真的长这样呢。
+    """
+    if name in _WARNED_KEYS:
+        return
+    problems = key_problems(value)
+    if not problems:
+        return
+    _WARNED_KEYS.add(name)
+    print(f"\n[提醒] {name} 看起来不太对：", file=sys.stderr)
+    for problem in problems:
+        print(f"         - {problem}", file=sys.stderr)
+    print(f"       它现在的指纹是 {fingerprint(value)}。", file=sys.stderr)
+    print("       如果下一步报「密钥被拒绝」，先回到 .env 检查这一行。\n", file=sys.stderr)
+
+
 def get_key(env_name: str, *, required: bool = True) -> str:
     """取一个密钥。缺了就抛 MissingKey，并说清楚怎么补。"""
     value = (os.environ.get(env_name) or load_env().get(env_name) or "").strip()
@@ -101,6 +155,7 @@ def get_key(env_name: str, *, required: bool = True) -> str:
             )
         return ""
     _register(env_name, value)
+    _sanity_check(env_name, value)
     return value
 
 

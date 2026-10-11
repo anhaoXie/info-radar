@@ -352,10 +352,12 @@ class LLMClient:
         choices = data.get("choices") or []
         if not choices:
             raise FatalLLMError(f"返回里没有 choices：{mask(json.dumps(data, ensure_ascii=False)[:300])}")
-        message = choices[0].get("message") or {}
+        choice = choices[0]
+        message = choice.get("message") or {}
         content = message.get("content")
+        finish_reason = choice.get("finish_reason")
 
-        if isinstance(content, str):
+        if isinstance(content, str) and content.strip():
             return content
         if isinstance(content, list):
             # 有的厂商把内容拆成块
@@ -365,10 +367,40 @@ class LLMClient:
                     parts.append(block["text"])
                 elif isinstance(block, str):
                     parts.append(block)
-            return "".join(parts)
-        if isinstance(choices[0].get("text"), str):
-            return choices[0]["text"]
-        raise FatalLLMError("无法从返回中取出文本内容。")
+            if "".join(parts).strip():
+                return "".join(parts)
+        if isinstance(choice.get("text"), str) and choice["text"].strip():
+            return choice["text"]
+
+        # ---- 空内容：必须分清是哪一种空，因为解法完全不同
+        #
+        # 最常见、也最容易被误判的一种：推理模型把 max_tokens 全花在"思考"上，
+        # 还没来得及输出答案就被截断了。这时 finish_reason 是 "length"。
+        #
+        # 如果不区分，用户看到的只会是"输出为空"或者干脆是一堆
+        # "格式不合规"，然后他会去怀疑提示词、怀疑模型、怀疑自己 ——
+        # 而真正的解法是"把 max_tokens 调大"，报错里一个字都没提。
+        if finish_reason == "length":
+            reasoning = message.get("reasoning_content") or message.get("reasoning") or ""
+            hint = (
+                "  模型没说完就停了：输出版额被 max_tokens 用光了。\n"
+                "  如果这是个带「思考」的模型，它多半把额度全花在思考上，"
+                "还没轮到最后那个 JSON 就被截断了。\n"
+            )
+            if reasoning:
+                hint += f"  （它确实产出了 {len(str(reasoning))} 字的思考内容，但那是给你看的，不是答案。）\n"
+            hint += (
+                "  改 config/task.json 里的 prompt.params.max_tokens，调大一点（比如 3000）；\n"
+                "  或者换一个不带思考的模型。"
+            )
+            raise FatalLLMError(hint)
+
+        raise FatalLLMError(
+            "模型返回了空内容（HTTP 200，但 choices 里没有任何文字）。\n"
+            f"  finish_reason={finish_reason!r}\n"
+            "  可能是这家服务的临时问题，重跑一次通常就好；"
+            "如果每次都这样，换一个模型试试。"
+        )
 
     def _build_http_error(self, response: requests.Response) -> LLMError:
         body = mask(response.text[:500])

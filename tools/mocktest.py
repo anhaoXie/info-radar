@@ -236,6 +236,40 @@ class MockHandler(BaseHTTPRequestHandler):
             self._send(200, {"id": "x", "choices": [], "usage": {}})
             return
 
+        if "TRIGGER_EMPTY_LENGTH" in text:
+            # 推理模型把 max_tokens 全花在思考上，还没来得及给答案就被截断。
+            # 这是最容易被误判成"提示词不好"或"模型不行"的一种失败。
+            self._send(
+                200,
+                {
+                    "id": "chatcmpl-empty",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": "",
+                                "reasoning_content": "让我想想……先分析一下这篇文章讲了什么……" * 20,
+                            },
+                            "finish_reason": "length",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 100, "completion_tokens": 1200},
+                },
+            )
+            return
+
+        if "TRIGGER_EMPTY_OTHER" in text:
+            self._send(
+                200,
+                {
+                    "id": "chatcmpl-empty2",
+                    "choices": [{"index": 0, "message": {"role": "assistant", "content": ""}, "finish_reason": "stop"}],
+                    "usage": {},
+                },
+            )
+            return
+
         if "TRIGGER_BAD_JSON" in text:
             self._send(200, b"this is definitely not json")
             return
@@ -480,6 +514,30 @@ def main() -> int:
                 FatalLLMError,
                 lambda: client.chat([{"role": "user", "content": "TRIGGER_BAD_JSON"}]),
             )
+
+            # 空内容分两种，解法完全不同。混在一起报，用户会去怀疑提示词和模型，
+            # 而真正该做的是把 max_tokens 调大。
+            print("\n[② 模型层 · 模型返回空内容时]")
+            truncated = expect_raises(
+                "被 max_tokens 截断（推理模型常见）时，明说该调 max_tokens",
+                FatalLLMError,
+                lambda: client.chat([{"role": "user", "content": "TRIGGER_EMPTY_LENGTH"}]),
+                contains="max_tokens",
+            )
+            check("截断时的提示指出它把额度花在了思考上",
+                  "思考" in str(truncated or ""), f"实际 {str(truncated or '')[:120]}")
+            check("截断时的提示给出具体的修改位置",
+                  "config/task.json" in str(truncated or ""))
+
+            other_empty = expect_raises(
+                "别的原因导致空内容时，给的是另一种解释",
+                FatalLLMError,
+                lambda: client.chat([{"role": "user", "content": "TRIGGER_EMPTY_OTHER"}]),
+                contains="空内容",
+            )
+            check("两种空内容的提示确实不同",
+                  "max_tokens" not in str(other_empty or ""),
+                  "两种情况混成一句话，就等于没诊断")
 
             # ---------------------------------------------------- 重试
             print("\n[② 模型层 · 失败分类与重试]")
