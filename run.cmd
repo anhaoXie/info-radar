@@ -14,6 +14,7 @@ REM  Usage:
 REM    run.cmd status
 REM    run.cmd doctor
 REM    run.cmd selftest
+REM    run.cmd mocktest
 REM    run.cmd probe
 REM    run.cmd collect
 REM    run.cmd inbox
@@ -45,6 +46,7 @@ if /i "%CMD%"=="help"     goto :c_help
 if /i "%CMD%"=="status"   goto :c_status
 if /i "%CMD%"=="doctor"   goto :c_doctor
 if /i "%CMD%"=="selftest" goto :c_selftest
+if /i "%CMD%"=="mocktest" goto :c_mocktest
 if /i "%CMD%"=="probe"    goto :c_probe
 if /i "%CMD%"=="collect"  goto :c_collect
 if /i "%CMD%"=="inbox"    goto :c_inbox
@@ -74,6 +76,10 @@ exit /b %ERRORLEVEL%
 
 :c_selftest
 python tools\selftest.py
+exit /b %ERRORLEVEL%
+
+:c_mocktest
+python tools\mocktest.py
 exit /b %ERRORLEVEL%
 
 :c_probe

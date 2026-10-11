@@ -135,6 +135,8 @@ def show_progress() -> int:
             accuracy_text = f"{accuracy * 100:.1f}%" if accuracy is not None else "无真值"
             placeholder = "  [占位数据]" if metrics.get("placeholder_data") else ""
             print(f"       最近一次 {latest.name}{placeholder}")
+            if metrics.get("truncated"):
+                print("       !! 这一轮被预算中断，只跑了一部分 —— 不是完整基线")
             print(
                 f"       格式合规 {metrics.get('format_ok_rate', 0) * 100:.1f}%   "
                 f"分类准确 {accuracy_text}   单条成本 {metrics.get('cost_avg_cny', 0)} 元"
@@ -264,9 +266,10 @@ def show_help() -> int:
     print()
     print("  info-radar · 个人 AI 工作系统")
     print("  " + hr("-"))
-    print("  先跑这两个（不联网，不花钱，出错先看它们）")
+    print("  先跑这三个（不联网，不花钱，出错先看它们）")
     print("    run.cmd status          我走到哪了")
-    print("    run.cmd selftest        离线自检全部逻辑（65 项）")
+    print("    run.cmd selftest        离线自检纯逻辑（65 项，毫秒级）")
+    print("    run.cmd mocktest        全链路自检：本地假服务端验证真客户端（68 项）")
     print("    run.cmd doctor          环境自检")
     print()
     print("  模型（要联网，要密钥）")
