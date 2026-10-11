@@ -573,6 +573,69 @@ def main() -> int:
         check("只有一行时不丢内容",
               parsed is not None and "只有一行" in parsed[1], f"实际 {parsed}")
 
+    # ---- 本地投喂这条路，要真的走通
+    #
+    # read_inbox_file（解析）测得很全，但 import_inbox（真的写进 data/raw 和索引）
+    # 一条测试都没有 —— 而这才是用户手动贴文章时真正走的那条路。
+    #
+    # 这条路存在的理由很实在：实测发现国内 RSS 只给 7-68 字的一句话，
+    # 没有正文可摘要。所以"从 RSS 抓全文"在你当前网络下不成立，
+    # 得留一条"我自己把全文丢进来"的路。
+    print("\n[① 数据层 · 本地投喂（贴文章进来）]")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        fake_root = Path(tmp)
+        fake_inbox = fake_root / "data" / "inbox"
+        fake_raw = fake_root / "data" / "raw"
+        fake_cache = fake_root / "data" / "cache"
+        for directory in (fake_inbox, fake_raw, fake_cache):
+            directory.mkdir(parents=True)
+
+        real_collect_paths = (
+            collect_mod.PROJECT_ROOT, collect_mod.INBOX_DIR,
+            collect_mod.RAW_DIR, collect_mod.INDEX_PATH,
+        )
+        collect_mod.PROJECT_ROOT = fake_root
+        collect_mod.INBOX_DIR = fake_inbox
+        collect_mod.RAW_DIR = fake_raw
+        collect_mod.INDEX_PATH = fake_cache / "index.json"
+        try:
+            (fake_inbox / "正常文章.md").write_text(
+                "# 某公司发布端侧推理框架\n\n" + "正文内容，够长。" * 60, encoding="utf-8")
+            (fake_inbox / "_说明.md").write_text("这是说明文件，不该被导入。", encoding="utf-8")
+            (fake_inbox / "太短的.md").write_text("# 短\n\n只有几个字。", encoding="utf-8")
+
+            first = collect_mod.import_inbox(verbose=False)
+            raw_names = sorted(p.name for p in fake_raw.iterdir() if p.is_file())
+            index_after = json.loads(
+                (fake_cache / "index.json").read_text(encoding="utf-8"))
+            done_note_exists = (fake_root / collect_mod.INBOX_DONE_NOTE).exists()
+
+            # 再导一次：同一份文件不该重复入库
+            second = collect_mod.import_inbox(verbose=False)
+        finally:
+            (collect_mod.PROJECT_ROOT, collect_mod.INBOX_DIR,
+             collect_mod.RAW_DIR, collect_mod.INDEX_PATH) = real_collect_paths
+
+        check("贴进来的文档真的落进了 data/raw",
+              len(raw_names) == 1, f"实际 {raw_names}")
+        check("索引里多了一条", len(index_after["items"]) == 1,
+              f"实际 {len(index_after['items'])}")
+        entry = next(iter(index_after["items"].values()))
+        check("索引里记着它来自「本地投喂」，不是某个 RSS 源",
+              entry.get("source") == collect_mod.INBOX_SOURCE_NAME,
+              f"实际 {entry.get('source')!r}")
+        check("以下划线开头的文件被忽略（方便放说明文件）",
+              first["imported"] == 1, f"实际导入 {first['imported']} 篇")
+        check("正文太短的被单独计数，而不是混进「跳过」",
+              first["too_short"] == 1, f"实际 {first}")
+        check("重复导入是幂等的（不会同一篇进两次）",
+              second["imported"] == 0 and second["skipped"] >= 1, f"实际 {second}")
+        check("新条目是「未处理」状态，等着被流水线捡起来",
+              entry.get("processed") is False,
+              "如果是已处理，它永远不会被摘要")
+        check("导入记录写在 data/inbox/_done.json", done_note_exists)
+
     # ---------------------------------------------------------- 标注
     print("\n[⓪ 评估层 · 标注解析与抽样]")
 
