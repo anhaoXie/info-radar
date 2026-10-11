@@ -850,8 +850,20 @@ def cmd_compile(args: argparse.Namespace) -> int:
         print("  评估集看起来是健康的。")
 
     print()
-    print("  下一步：先填 config/providers.json 的单价，然后")
-    print("    run.cmd eval -Limit 3      # 花几分钱验证链路")
+    # 只在【真的一家都没填单价】时才让你去填。
+    # 否则你就是在被叫去做一件已经做过的事 —— 而做过的人会开始怀疑
+    # 自己是不是漏了什么，然后去翻配置找那个并不存在的"没填"。
+    from src.config import load_providers
+
+    priced = [
+        name for name, cfg in (load_providers().get("providers") or {}).items()
+        if (cfg.get("price_cny_per_1m") or {}).get("input") is not None
+    ]
+    if priced:
+        print(f"  下一步：跑你的第一个基线（单价已配好：{'、'.join(priced)}）")
+    else:
+        print("  下一步：先填 config/providers.json 的单价，然后")
+    print("    run.cmd eval -Limit 3      # 先跑 3 条验证链路")
     print("    run.cmd eval               # 跑出你的基线")
     print()
     return 0

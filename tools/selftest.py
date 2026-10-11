@@ -752,6 +752,76 @@ def main() -> int:
           "w1 | 模型与技术 | 4" in saved_labels,
           f"实际存成：{[l for l in saved_labels.splitlines() if l.startswith('w1')]}")
 
+    # ---- 别叫用户去做一件已经做过的事
+    #
+    # compile 结尾原来写死了「下一步：先填 config/providers.json 的单价」。
+    # 智谱的单价填好之后，那句话还在 —— 于是你被派去填一个已经填过的东西，
+    # 然后开始怀疑自己是不是漏了什么，去翻配置找那个并不存在的空位。
+    #
+    # 这是我第五次修同一类问题了（doctor 的 pending、status 的下一步、
+    # 文档里的项数、日报的措辞）。所以这次给它一条测试。
+    print("\n[⓪ 评估层 · 不叫用户做已经做过的事]")
+
+    import argparse as _argparse
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_dir = Path(tmp)
+        fake_cand = tmp_dir / "candidates.jsonl"
+        fake_labels = tmp_dir / "labels.txt"
+        fake_set = tmp_dir / "eval_set.jsonl"
+
+        rows = []
+        lines = []
+        for index in range(1, 6):
+            item_id = "c%02d" % index
+            rows.append({
+                "id": item_id, "title": "第 %d 条" % index, "source": "测试源",
+                "published": None, "url": "https://example.com/%d" % index,
+                "body": "正文" * 100, "gold": {"category": None, "importance": None},
+            })
+            lines.append(f"{item_id} | 模型与技术 | 3")
+        fake_cand.write_text(
+            "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")
+        fake_labels.write_text("# 表头\n\n" + "\n".join(lines) + "\n", encoding="utf-8")
+
+        real_paths = (make_eval_set.CANDIDATES_PATH, make_eval_set.LABELS_PATH,
+                      make_eval_set.EVAL_SET_PATH)
+        make_eval_set.CANDIDATES_PATH = fake_cand
+        make_eval_set.LABELS_PATH = fake_labels
+        make_eval_set.EVAL_SET_PATH = fake_set
+
+        compile_buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(compile_buf):
+                make_eval_set.cmd_compile(_argparse.Namespace(allow_partial=False))
+            compile_out = compile_buf.getvalue()
+            # 必须在 with 块【里面】读 —— 临时目录一出去就被删了。
+            # （第一版就是在块外检查的，于是"文件不存在"这个断言
+            #   测的其实是"临时目录已经清理了"，和 compile 毫无关系。）
+            written_lines = (
+                len(fake_set.read_text(encoding="utf-8").splitlines())
+                if fake_set.exists() else 0
+            )
+        finally:
+            (make_eval_set.CANDIDATES_PATH, make_eval_set.LABELS_PATH,
+             make_eval_set.EVAL_SET_PATH) = real_paths
+
+    check("compile 真的写出了一个评估集", written_lines >= 5,
+          f"实际写了 {written_lines} 行 —— 这条不成立的话，下面那条就没有意义")
+
+    from src.config import load_providers as _load_providers
+
+    any_priced = any(
+        (cfg.get("price_cny_per_1m") or {}).get("input") is not None
+        for cfg in (_load_providers().get("providers") or {}).values()
+    )
+    if any_priced:
+        check("已经配好单价时，compile 不再叫你去填单价",
+              "先填 config/providers.json 的单价" not in compile_out,
+              "被派去填一个已经填过的东西，你会开始怀疑自己漏了什么")
+        check("已经配好单价时，compile 明说配好了哪几家",
+              "单价已配好" in compile_out, f"实际结尾：{compile_out[-200:]}")
+
     # ---------------------------------------------------------- ④ 分发层
     print("\n[④ 分发层 · 日报渲染与审核解析]")
 
