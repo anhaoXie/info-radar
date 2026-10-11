@@ -34,7 +34,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config import load_task  # noqa: E402
+from src.config import load_task, read_text_smart  # noqa: E402
 
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
 EVAL_DIR = PROJECT_ROOT / "eval"
@@ -292,7 +292,7 @@ def parse_labels(path: Path) -> dict[str, tuple[str | None, int | None, bool]]:
     if not path.exists():
         return {}
     labels: dict[str, tuple[str | None, int | None, bool]] = {}
-    for raw in path.read_text(encoding="utf-8").splitlines():
+    for raw in read_text_smart(path).splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
@@ -375,7 +375,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     candidates = [
         json.loads(line)
-        for line in CANDIDATES_PATH.read_text(encoding="utf-8").splitlines()
+        for line in read_text_smart(CANDIDATES_PATH).splitlines()
         if line.strip()
     ]
     labels = parse_labels(LABELS_PATH)
@@ -452,7 +452,7 @@ def cmd_wizard(args: argparse.Namespace) -> int:
 
     candidates = [
         json.loads(line)
-        for line in CANDIDATES_PATH.read_text(encoding="utf-8").splitlines()
+        for line in read_text_smart(CANDIDATES_PATH).splitlines()
         if line.strip()
     ]
     order = [item["id"] for item in candidates]
@@ -594,7 +594,7 @@ def _rewrite_labels(order: list[str], answers: dict) -> None:
     """把 answers 写回 labels.txt，保持原有的顺序和表头。"""
     header: list[str] = []
     if LABELS_PATH.exists():
-        for line in LABELS_PATH.read_text(encoding="utf-8").splitlines():
+        for line in read_text_smart(LABELS_PATH).splitlines():
             if line.startswith("#") or not line.strip():
                 header.append(line)
             elif "|" not in line:
@@ -628,7 +628,7 @@ def cmd_compile(args: argparse.Namespace) -> int:
 
     candidates = [
         json.loads(line)
-        for line in CANDIDATES_PATH.read_text(encoding="utf-8").splitlines()
+        for line in read_text_smart(CANDIDATES_PATH).splitlines()
         if line.strip()
     ]
     labels = parse_labels(LABELS_PATH)
@@ -742,18 +742,48 @@ def cmd_compile(args: argparse.Namespace) -> int:
 
     # ---------------- 写入 ----------------
 
-    if EVAL_SET_PATH.exists() and not args.force:
-        existing = EVAL_SET_PATH.read_text(encoding="utf-8")
-        still_placeholder = "_placeholder" in existing
-        if not still_placeholder:
-            print()
-            print("  eval/eval_set.jsonl 已经存在，而且看起来是你自己标过的数据。")
-            print("  直接覆盖会丢掉它。确认要覆盖就加 --force。")
-            print()
-            return 1
+    # ---------------- 合并，而不是覆盖 ----------------
+    #
+    # 评估集里有两种样本，它们的"源头"不同：
+    #
+    #   labels.txt 生成的   —— 源头是 labels.txt，重编就该以它为准（可以改、可以删）
+    #   审核回流的          —— 源头是 run.cmd review --apply，和 labels.txt 无关
+    #
+    # 第一版是无条件覆盖，于是"改错一处标注、重新 compile"会把
+    # 你每天审核攒下来的样本一起冲掉 —— 那是整套系统里唯一一处
+    # "它会自己变强"的成果，也是最不该丢的东西。
+    #
+    # 而那个 --force 保护（要求显式确认才覆盖）也没帮上忙：
+    # 它只是把"必然丢数据"变成"要你手动同意丢数据"，
+    # 却堵死了"改一处标注再重编"这条正常需求。
+    #
+    # 正确做法是分清来源：labels 生成的重算，审核回流的原样保留。
+    preserved: list[dict] = []
+    if EVAL_SET_PATH.exists():
+        existing_text = read_text_smart(EVAL_SET_PATH)
+        if "_placeholder" not in existing_text:
+            # 先留一份备份。合并不该丢东西，但"不该"不是"不会"。
+            backup_path = EVAL_SET_PATH.with_suffix(".backup.jsonl")
+            backup_path.write_text(existing_text, encoding="utf-8")
+        fresh_ids = {str(r.get("id")) for r in records}
+        for line in existing_text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if str(row.get("id")) in fresh_ids:
+                continue
+            if row.get("label_origin") == "review":
+                preserved.append(row)
 
     EVAL_SET_PATH.write_text(
-        "\n".join(json.dumps(r, ensure_ascii=False) for r in records) + "\n", encoding="utf-8"
+        "\n".join(
+            json.dumps(r, ensure_ascii=False) for r in (records + preserved)
+        ) + "\n",
+        encoding="utf-8",
     )
 
     print()
@@ -762,6 +792,9 @@ def cmd_compile(args: argparse.Namespace) -> int:
     print(f"    标记不确定  {len(ambiguous_ids)} 条" + (f"（{' '.join(ambiguous_ids[:12])}）" if ambiguous_ids else ""))
     if scored:
         print(f"    分类分布    " + "，".join(f"{k} {v}" for k, v in category_counts.most_common()))
+    if preserved:
+        print(f"    保留的审核回流 {len(preserved)} 条（重新编译不会动它们）")
+    print(f"    评估集现在一共 {len(records) + len(preserved)} 条")
 
     if warnings:
         print()
@@ -797,7 +830,6 @@ def main() -> int:
     parser.add_argument("--min-chars", type=int, default=300, help="正文短于这个字数的不要")
     parser.add_argument("--per-source-cap", type=int, default=6, help="同一来源最多取几条")
     parser.add_argument("--allow-partial", action="store_true", help="允许只编译已填的部分")
-    parser.add_argument("--force", action="store_true", help="覆盖已有的评估集")
     args = parser.parse_args()
 
     if args.wizard:

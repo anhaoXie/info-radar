@@ -55,7 +55,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config import load_task  # noqa: E402
+from src.config import load_task, read_text_smart  # noqa: E402
 from src.secrets import PROJECT_ROOT as ROOT  # noqa: E402
 
 RESULTS_DIR = ROOT / "out" / "results"
@@ -406,7 +406,7 @@ def load_eval_set_ids() -> set[str]:
     if not EVAL_SET_PATH.exists():
         return set()
     ids = set()
-    for line in EVAL_SET_PATH.read_text(encoding="utf-8").splitlines():
+    for line in read_text_smart(EVAL_SET_PATH).splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
@@ -634,7 +634,7 @@ def cmd_apply(stamp: str | None, quiet: bool) -> int:
 def cmd_stats() -> int:
     rows = []
     if EVAL_SET_PATH.exists():
-        for line in EVAL_SET_PATH.read_text(encoding="utf-8").splitlines():
+        for line in read_text_smart(EVAL_SET_PATH).splitlines():
             line = line.strip()
             if not line or line.startswith("#"):
                 continue

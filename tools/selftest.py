@@ -162,13 +162,41 @@ def main() -> int:
 
     from src.evaluate import load_eval_set
 
-    rows, placeholder = load_eval_set(PROJECT_ROOT / "eval" / "eval_set.jsonl")
-    check("能读出评估集", len(rows) >= 5, f"读到 {len(rows)} 条")
-    check("能识别占位数据", placeholder is True)
-    check("每条都有 gold.category", all(r.get("gold", {}).get("category") for r in rows))
-    check("gold.category 都在允许列表里",
-          all(r["gold"]["category"] in task_cfg["categories"] for r in rows),
-          "有真值用了分类体系外的标签")
+    # 【不要拿真实的 eval/eval_set.jsonl 去断言内容】
+    #
+    # 第一版这几条断言写的是"真实评估集里含占位数据、每条都有 gold.category"。
+    # 那时它是对的 —— 因为评估集还是占位版。
+    # 可等你哪天 compile 出自己的评估集（那是【正确用法】），
+    # 这几条就会开始失败，然后你跑 selftest 会看到一片红，以为系统坏了。
+    #
+    # 一个"用户正确使用它就会失败"的测试，比没有测试更糟。
+    # 所以：行为用临时样本测，真实文件只做"读得动、形状对"的宽松检查。
+    with tempfile.TemporaryDirectory() as tmp:
+        fixture_set = Path(tmp) / "eval_set.jsonl"
+        fixture_set.write_text(
+            '{"id":"p1","_placeholder":true,"gold":{"category":"其他","importance":3}}\n'
+            '{"id":"p2","gold":{"category":"产品发布","importance":4}}\n',
+            encoding="utf-8",
+        )
+        fixture_rows, fixture_placeholder = load_eval_set(fixture_set)
+    check("能读出评估集", len(fixture_rows) == 2, f"读到 {len(fixture_rows)} 条")
+    check("能识别占位数据", fixture_placeholder is True)
+    check("没有占位标记时不会被误判成占位", fixture_placeholder and fixture_rows[1]["id"] == "p2")
+
+    real_set = PROJECT_ROOT / "eval" / "eval_set.jsonl"
+    if real_set.exists():
+        try:
+            real_rows, _ = load_eval_set(real_set)
+            bogus = [
+                r.get("id") for r in real_rows
+                if r.get("gold", {}).get("category")
+                and r["gold"]["category"] not in task_cfg["categories"]
+            ]
+            check("真实的评估集能被读出来（不管它是占位版还是你自己标的）",
+                  True, "")
+            check("真实评估集里的分类都在允许列表内", not bogus, f"越界：{bogus}")
+        except SystemExit as exc:
+            check("真实的评估集能被读出来", False, str(exc)[:110])
 
     # ---------------------------------------------------------- 账本
     print("\n[⓪⑤ 账本与预算]")
@@ -708,6 +736,44 @@ def main() -> int:
           suggest_model(["text-embedding-3", "chat-mini"], None) == ("chat-mini", False))
     check("全都不是聊天模型时也不会挑出空",
           suggest_model(["text-embedding-3"], None) == ("text-embedding-3", False))
+
+    # ---- 编码宽容度：这条是为中文 Windows 用户守的
+    #
+    # 记事本默认把文件存成 GBK，而 labels.txt 和 eval_set.jsonl
+    # 恰恰是明确希望用户【手工编辑】的两个文件。
+    # 用 utf-8 硬读，用户会得到一个 UnicodeDecodeError 的英文报错栈，
+    # 完全看不出"这是编码问题"。
+    #
+    # 这个 bug 是被自己的测试意外挖出来的：测试数据用 PowerShell 的
+    # Add-Content 追加（它按 GBK 写），下一次 compile 就直接抛栈了。
+    from src.config import read_text_smart
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_dir = Path(tmp)
+
+        utf8_path = tmp_dir / "u8.txt"
+        utf8_path.write_text("中文内容：模型与技术\n", encoding="utf-8")
+        check("能读 UTF-8 文件", "模型与技术" in read_text_smart(utf8_path))
+
+        bom_path = tmp_dir / "bom.txt"
+        bom_path.write_text("中文内容\n", encoding="utf-8-sig")
+        check("能读带 BOM 的 UTF-8（记事本另存为 UTF-8 会带 BOM）",
+              read_text_smart(bom_path).strip() == "中文内容",
+              f"实际 {read_text_smart(bom_path)!r}")
+
+        gbk_path = tmp_dir / "gbk.txt"
+        gbk_path.write_bytes("中文内容：模型与技术\n".encode("gbk"))
+        check("能读 GBK（中文 Windows 记事本的默认编码）",
+              "模型与技术" in read_text_smart(gbk_path),
+              "旧代码在这里抛 UnicodeDecodeError，用户看不懂")
+
+        broken_path = tmp_dir / "broken.bin"
+        broken_path.write_bytes(b"\xff\xfe\x00\x01\x02")
+        try:
+            read_text_smart(broken_path)
+            check("遇到彻底读不了的文件也不会崩", True)
+        except Exception as exc:  # noqa: BLE001
+            check("遇到彻底读不了的文件也不会崩", False, f"抛了 {type(exc).__name__}")
 
     # ---------------------------------------------------------- ⑤ 权限层
     print("\n[⑤ 权限层 · 每日运行与健康记录]")
