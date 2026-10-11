@@ -1066,6 +1066,36 @@ def main() -> int:
     check("文档里没有写死的自检项数", not stale,
           "这些地方会随项目长大而变成假警报：" + "；".join(stale))
 
+    # README 的目录树是一份**承诺**：它告诉用户"这里有什么"。
+    # 里面的文件名必须真的存在，而且实际的模块必须都在里面 ——
+    # 一个漏了 config.py 的地图，会让读它的人以为那部分不存在。
+    #
+    # 注意正则里的后缀顺序：长的必须排在前面。
+    # 我第一版写成 (py|md|json|jsonl)，于是 json 先匹配掉了 jsonl 的前四个字符，
+    # 检查报出一个【并不存在】的缺失文件 —— 一个误报的检查，
+    # 和没有检查一样糟，甚至更糟。
+    readme_text = read_text_smart(PROJECT_ROOT / "README.md")
+    tree_files = set(
+        _re_docs.findall(
+            r"[\u251c\u2514]\u2500\s*([\w\-.]+\.(?:jsonl|json|py|md|cmd|txt))", readme_text
+        )
+    )
+    check("README 目录树解析出了合理的文件数", len(tree_files) >= 20,
+          f"只解析出 {len(tree_files)} 个，正则该改")
+
+    tree_missing = sorted(n for n in tree_files if not list(PROJECT_ROOT.rglob(n)))
+    check("README 目录树里提到的文件都真的存在", not tree_missing,
+          f"树上写了但磁盘上没有：{tree_missing}")
+
+    real_modules = {
+        p.name
+        for p in list((PROJECT_ROOT / "src").glob("*.py")) + list((PROJECT_ROOT / "tools").glob("*.py"))
+        if p.name != "__init__.py"
+    }
+    not_in_tree = sorted(real_modules - tree_files)
+    check("实际存在的模块都写进了 README 目录树", not not_in_tree,
+          f"漏了：{not_in_tree}")
+
     # ---------------------------------------------------------- 入口脚本
     print("\n[⑤ 入口脚本 · 编码、换行、引用]")
 
