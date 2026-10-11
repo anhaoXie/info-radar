@@ -46,9 +46,22 @@ def hr(char: str = "-", width: int = 68) -> str:
 
 
 def suggest_model(models: list[str], configured: str | None) -> tuple[str | None, bool]:
-    """挑一个可用的模型。返回 (模型名, 是否与配置里写的一致)。"""
+    """挑一个可用的模型。返回 (模型名, 是否与配置里写的一致)。
+
+    【列不出模型名，不代表密钥不可用】
+
+    第一版在这里直接 `return None, False`，于是当某家厂商不提供 /models 接口时，
+    probe 会报「拿不到任何模型名，无法测试」并停下 ——
+    而这和你的密钥好不好【毫无关系】。
+
+    这是最坏的一种失败：用户第一次用，照着提示做对了每一件事，
+    却被一个和密钥无关的技术细节挡在门外，而且提示语还告诉他"无法测试"。
+
+    所以现在：列表拿不到，就拿配置里写的那个去试。
+    试通了，说明密钥是好的；试不通，报的也是真实原因（模型名不对 / 没权限 / 欠费）。
+    """
     if not models:
-        return None, False
+        return (configured, True) if configured else (None, False)
     if configured and configured in models:
         return configured, True
 
@@ -89,6 +102,7 @@ def probe_provider(name: str, cfg: dict, policy: dict) -> dict:
         result["models"] = []
         result["models_error"] = str(exc)[:200]
 
+    result["models_listed"] = bool(result.get("models"))
     candidate, matched = suggest_model(result.get("models", []), cfg.get("default_model"))
     result["suggested_model"] = candidate
     result["config_matches"] = matched
@@ -131,6 +145,7 @@ def print_probe_report(results: list[dict]) -> None:
             continue
 
         models = item.get("models", [])
+        listed = item.get("models_listed")
         if models:
             print(f"  可用模型   {len(models)} 个")
             for model in models[:14]:
@@ -139,18 +154,24 @@ def print_probe_report(results: list[dict]) -> None:
             if len(models) > 14:
                 print(f"               ...（还有 {len(models) - 14} 个）")
         else:
-            print(f"  可用模型   查不到（{item.get('models_error', '该厂商可能不提供 /models 接口')[:110]}）")
-            print("            这不一定是问题：有的厂商只支持直接调用。")
+            # 列不出模型名不是终点。有的厂商压根没有 /models 接口，
+            # 那和你的密钥好不好是两件事 —— 下面会拿配置里的名字实测。
+            print("  可用模型   这家不提供模型列表（和你的密钥没关系）")
+            if item.get("models_error"):
+                print(f"             {item['models_error'][:110]}")
 
         if item["status"] == "ok":
             print(f"  实际调用   成功  {item['ping_ms']}ms  返回：{item['ping_text']!r}")
-            if item.get("suggested_model"):
-                note = "（与配置一致）" if item.get("config_matches") else "（与配置不同！请更新）"
-                print(f"  建议模型   {item['suggested_model']} {note}")
+            if item.get("suggested_model") and listed:
+                note = "（与配置一致）" if item.get("config_matches") else "（与配置不同！请更新 config/providers.json）"
+                print(f"  用哪个模型 {item['suggested_model']} {note}")
+            elif item.get("suggested_model"):
+                print(f"  用哪个模型 {item['suggested_model']}（配置里写的，实测能通）")
         elif item["status"] == "ping_failed":
             print(f"  实际调用   失败：{item.get('ping_error')}")
         elif item["status"] == "no_model_found":
-            print("  实际调用   跳过：拿不到任何模型名，无法测试。请手动填 config/providers.json 的 default_model。")
+            print("  实际调用   跳过：这家既列不出模型、配置里也没写模型名。")
+            print("             打开 config/providers.json，给它填一个 default_model 再跑一次。")
 
     print()
     print(hr("="))

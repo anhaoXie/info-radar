@@ -354,7 +354,9 @@ class LLMClient:
         elif response.status_code == 404:
             hint = (
                 f"\n  模型名可能不存在：{self.model}\n"
-                f"  跑 `python tools/probe.py --provider {self.provider_name}` 看真实可用的模型名。"
+                f"  先跑 `run.cmd probe --provider {self.provider_name}`，让程序去问服务端有哪些模型。\n"
+                f"  如果那家不提供模型列表，就去它的控制台看模型名，"
+                f"填进 config/providers.json 的 default_model。"
             )
         elif response.status_code == 429:
             hint = "\n  触发限流或余额不足。"

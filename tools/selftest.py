@@ -647,9 +647,10 @@ def main() -> int:
             archive_mod.EVAL_SET_PATH = original_path
 
     # ---------------------------------------------------------- ② 厂商配置
-    print("\n[② 模型层 · 厂商配置]")
+    print("\n[② 模型层 · 厂商配置与模型选择]")
 
     from src.config import load_providers
+    from probe import suggest_model
 
     providers_cfg = load_providers().get("providers", {})
     check("配置里有多家厂商可选", len(providers_cfg) >= 3, f"实际 {len(providers_cfg)} 家")
@@ -674,6 +675,24 @@ def main() -> int:
     check("被推荐的那家（zhipu）写了注册提示",
           bool(providers_cfg.get("zhipu", {}).get("signup_hint")),
           "推荐哪家、怎么注册，是用户第一个会问的问题")
+
+    # 模型选择：这里守的是一条会让用户第一次就卡死的路径。
+    # 有的厂商不提供 /models 接口 —— 那和"密钥好不好"毫无关系，
+    # 绝不能因此告诉用户"无法测试"。
+    check("列不出模型名时，退回用配置里写的那个去试",
+          suggest_model([], "glm-x") == ("glm-x", True),
+          "第一版这里返回 None，于是 probe 报「无法测试」——把好好的密钥判成了死局")
+    check("既列不出模型、配置里也没写，才真的没法测",
+          suggest_model([], None) == (None, False))
+    check("配置里写的模型在列表里时优先用它",
+          suggest_model(["a-flash", "b"], "b") == ("b", True))
+    check("配置里没有的模型名时，自己挑一个",
+          suggest_model(["big-expensive", "small-flash"], None) == ("small-flash", False),
+          "没有线索时优先挑便宜的 —— 基线和试跑都不需要最贵的模型")
+    check("挑模型时会排除明显不是聊天的（embedding 等）",
+          suggest_model(["text-embedding-3", "chat-mini"], None) == ("chat-mini", False))
+    check("全都不是聊天模型时也不会挑出空",
+          suggest_model(["text-embedding-3"], None) == ("text-embedding-3", False))
 
     # ---------------------------------------------------------- ⑤ 权限层
     print("\n[⑤ 权限层 · 每日运行与健康记录]")

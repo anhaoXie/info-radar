@@ -39,9 +39,11 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "tools"))
 
 import src.llm as llm_module  # noqa: E402
 import src.collect as collect_mod  # noqa: E402
+from probe import suggest_model  # noqa: E402
 from src.ledger import Budget, BudgetExceeded, Ledger  # noqa: E402
 from src.llm import FatalLLMError, LLMClient, RetryableLLMError  # noqa: E402
 
@@ -148,6 +150,11 @@ class MockHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         if self.path.rstrip("/").endswith("/models"):
+            # 有的厂商压根没有这个接口。用 state 开关模拟，
+            # 因为"列不出模型但密钥是好的"是一条会让人第一次就卡死的路径。
+            if self.server.state.get("models_404"):  # type: ignore[attr-defined]
+                self._send(404, {"error": {"message": "no such endpoint"}})
+                return
             self._send(
                 200,
                 {
@@ -500,12 +507,15 @@ def main() -> int:
                   f"实际发了 {len(server.requests) - before} 次")
 
             before = len(server.requests)
-            expect_raises(
+            not_found = expect_raises(
                 "404 给出可操作的指引",
                 FatalLLMError,
                 lambda: client.chat([{"role": "user", "content": "TRIGGER_FATAL_404"}]),
-                contains="probe.py",
+                contains="run.cmd probe",
             )
+            check("404 的提示里给了「这家不提供模型列表」时的退路",
+                  "控制台" in str(not_found or ""),
+                  f"实际 {str(not_found or '')[:140]}")
             check("404 只发了一次请求（没有重试）", len(server.requests) - before == 1,
                   f"实际发了 {len(server.requests) - before} 次")
 
@@ -540,6 +550,28 @@ def main() -> int:
             models = client.list_models()
             check("能列出模型", "mock-model-1" in models, f"实际 {models}")
             check("列出的模型是排序去重的", models == sorted(set(models)), f"实际 {models}")
+
+            # 有的厂商不提供 /models 接口。那和"密钥好不好"毫无关系 ——
+            # 绝不能因此告诉用户"无法测试"，那会让他以为自己的密钥有问题。
+            print("\n[② 模型层 · 厂商不提供模型列表时]")
+            server.httpd.state["models_404"] = True  # type: ignore[attr-defined]
+            try:
+                expect_raises(
+                    "厂商没有 /models 接口时，列模型会失败",
+                    FatalLLMError,
+                    lambda: client.list_models(),
+                )
+                fallback, matched = suggest_model([], "mock-model-1")
+                check("列不出模型时，退回用配置里写的那个",
+                      fallback == "mock-model-1" and matched is True, f"实际 {fallback!r}")
+                recovered = client.chat(
+                    [{"role": "user", "content": "配置里的模型名还能用吗"}], model=fallback
+                )
+                check("用配置里的模型名照样能正常调用",
+                      "模拟摘要内容" in recovered.text,
+                      "密钥明明是好的，却因为列不出模型而报错 —— 这正是要避免的死局")
+            finally:
+                server.httpd.state["models_404"] = False  # type: ignore[attr-defined]
 
             # ---------------------------------------------------- 真实任务链路
             print("\n[ⓞ→② 端到端 · 任务定义 → 消息 → 模型 → 校验]")
@@ -814,7 +846,6 @@ def main() -> int:
 
             # ---------------------------------------------------- 大声失败
             print("\n[⑤ 权限层 · 大声失败的三条保证]")
-
             import src.pipeline as pipeline_mod
             from src import runner as runner_mod
             from src.runner import StepSkipped, _step_digest, _step_pipeline
