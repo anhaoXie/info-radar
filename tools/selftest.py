@@ -936,6 +936,39 @@ def main() -> int:
         finally:
             runner_mod.ALERT_PATH = original_alert
 
+    # ---------------------------------------------------------- 入口脚本
+    print("\n[⑤ 入口脚本 · 编码、换行、引用]")
+
+    import re as _re
+
+    # 这几条都是真的踩过的坑，不是假想的：
+    #   · cmd.exe 用 OEM 码页读 .cmd，非 ASCII 内容会被撕碎，
+    #     甚至把注释行解析成命令（"xxx 不是内部或外部命令"）
+    #   · LF-only 的批处理文件里 goto 标签会失效
+    #     （"The system cannot find the batch label specified"）
+    #   · 脚本改名之后，启动器里写死的路径会静默失效 ——
+    #     双击没反应，而且不报任何错
+    for launcher in ("run.cmd", "开始标注.cmd", "看下一步.cmd"):
+        path = PROJECT_ROOT / launcher
+        if not path.exists():
+            check(f"{launcher} 存在", False, "文件没了")
+            continue
+        raw = path.read_bytes()
+        non_ascii = sum(1 for b in raw if b >= 128)
+        check(f"{launcher} 是纯 ASCII", non_ascii == 0,
+              f"有 {non_ascii} 个非 ASCII 字节，cmd.exe 会按 OEM 码页撕碎它")
+        bare_lf = raw.replace(b"\r\n", b"").count(b"\n")
+        check(f"{launcher} 全部用 CRLF 换行", bare_lf == 0,
+              f"有 {bare_lf} 个裸 LF —— 批处理里的 goto 标签会找不到")
+
+        text = raw.decode("ascii", errors="replace")
+        referenced = _re.findall(r"(?:tools|src)\\[\w.]+\.py", text)
+        missing = [r for r in referenced if not (PROJECT_ROOT / r.replace("\\", "/")).exists()]
+        check(f"{launcher} 里引用的脚本都存在", not missing, f"缺：{missing}")
+        check(f"{launcher} 在切换编码后才调用 Python",
+              text.index("chcp 65001") < text.index("python "),
+              "先调 Python 再切编码，中文输出会是乱码")
+
     # ---------------------------------------------------------- 结果
     print()
     print("=" * 68)
