@@ -353,6 +353,19 @@ class Pipeline:
         pending.sort(key=lambda r: str(r.get("fetched_at") or ""), reverse=True)
         return pending[:limit] if limit else pending
 
+    def is_retry(self, item_id: str) -> bool:
+        """这条是不是「处理过但失败了」—— 也就是 --retry-failed 额外捞回来的那些。
+
+        单独给它一个名字，是因为这件事很容易被误解：
+        用户看到 --retry-failed，会以为"只跑失败的那几条"。
+        而实际行为是"把失败的也捞回来，和没跑过的混在一起处理"。
+
+        在花掉真金白银之前，这个区别必须说清楚：
+        你以为要处理 2 条，实际处理 116 条 —— 差 50 倍的钱。
+        """
+        meta = self.index["items"].get(item_id) or {}
+        return bool(meta.get("processed")) and meta.get("status") != "ok"
+
     def _read_raw(self, item_id: str) -> dict | None:
         path = self.raw_dir / f"{item_id}.json"
         if not path.exists():
@@ -467,7 +480,12 @@ def main() -> int:
     parser.add_argument("--limit", "-Limit", "-limit", type=int, default=0, help="最多处理 N 条")
     parser.add_argument("--source", "-Source", default=None, help="只处理某个来源")
     parser.add_argument("--stub", action="store_true", help="用假模型跑，验证链路，不花钱")
-    parser.add_argument("--retry-failed", action="store_true", help="重试之前失败的条目")
+    parser.add_argument(
+        "--retry-failed",
+        action="store_true",
+        help="把【之前处理失败的】条目也捞回来一起处理（注意：不是只重试它们，"
+             "没跑过的照样会跑）",
+    )
     parser.add_argument("--dry-run", action="store_true", help="只列出要处理哪些，不发请求")
     parser.add_argument("--provider", "-Provider", default=None)
     parser.add_argument("--model", "-Model", default=None)
@@ -502,6 +520,15 @@ def main() -> int:
         # 一个需要密钥才能告诉你"我打算做什么"的工具，你只会在出错时才用它。
         print()
         print(f"  待处理 {len(items)} 条（--dry-run：不发请求、不花钱）")
+        if args.retry_failed:
+            _retried = [it for it in items if pipeline.is_retry(it["id"])]
+            if _retried:
+                print(f"  其中 {len(_retried)} 条是【之前失败的】，会一并重试")
+                print(f"  （剩下 {len(items) - len(_retried)} 条是从来没跑过的）")
+                print()
+                print("  ! --retry-failed 不是「只重试失败的」——"
+                      "它把失败的也捞回来，和你没跑过的混在一起。")
+                print("    想只跑那几条，把它们的 id 记下来，先 --source 或分批处理。")
         print()
         for index, item in enumerate(items, 1):
             print(f"  {index:>3}. {item['id']:<14} {str(item.get('title'))[:44]}")

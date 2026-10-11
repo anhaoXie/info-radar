@@ -895,8 +895,29 @@ def main() -> int:
                   wf2.select() == [], f"实际选出 {len(wf2.select())} 条")
 
             retry_items = wf2.select(retry_failed=True)
-            check("--retry-failed 时只挑出失败过的条目", len(retry_items) == 2,
-                  f"实际 {len(retry_items)} 条")
+            # 名字要说准：不是「只挑出失败的」，而是
+            # 「在已处理的里面，只有失败的会被重新选出」。
+            # 本场景里 4 条全都处理过了，所以看起来一样；
+            # 真实场景里还有一堆没跑过的，它们照样会在列表里。
+            check("--retry-failed 时，已处理的条目里只有失败的会被重新选出",
+                  len(retry_items) == 2, f"实际 {len(retry_items)} 条")
+
+            # ---- --retry-failed 到底是什么意思
+            #
+            # 每个人第一眼都会把它读成「只重试失败的那几条」。
+            # 而实际行为是「把失败的也捞回来，和没跑过的混在一起」。
+            #
+            # 这个误解会花钱：你以为要处理 2 条，实际处理 116 条 —— 差 50 倍。
+            # 所以 is_retry 必须能被单独问清楚，而不是只在输出里算个数字。
+            check("is_retry 能认出「处理过但失败了」的条目",
+                  wf2.is_retry("w3") is True,
+                  f"w3 的状态是 {index_now['w3'].get('status')}，应被认成重试")
+            check("is_retry 不会把「成功过的」算成重试",
+                  wf2.is_retry("w1") is False,
+                  "成功的被算成重试，那个数字就虚高了")
+            check("is_retry 不会把「从来没跑过的」算成重试",
+                  wf2.is_retry("根本没这个 id") is False,
+                  "把没跑过的也算进来，用户会以为失败了一大片")
 
             # ---- 预算中断
             budget_dir = Path(tmp) / "wf_budget"
