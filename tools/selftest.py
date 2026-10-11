@@ -817,6 +817,46 @@ def main() -> int:
     check("未审核的日报带明显标记", "未审核" in digest)
     check("未审核的日报给出下一步命令", "review --apply test" in digest)
 
+    # ---- 产出不完整的条数，要在【头部】就说清楚
+    #
+    # 失败的条目其实【会】出现，排在「其他」里标着 `产出不完整`。
+    # 但只在正文里标个记号不够：你扫头部看到"收录 5 条"，
+    # 会以为今天是 5 条新闻，而其中 2 条其实是失败的空壳。
+    #
+    # 我第一版这里写的是"另有 N 篇没有出现在下面" —— 那是假的，
+    # 它们明明在下面。**一句不实的话，比不说话更坏。**
+    print("\n[④ 分发层 · 产出不完整要在头部点名]")
+
+
+    def _digest_with(statuses: list[str]) -> str:
+        records = []
+        for index, status in enumerate(statuses, 1):
+            record = fake_record(f"f{index}", "模型与技术", 3, f"条目{index}")
+            record["status"] = status
+            if status != "ok":
+                record["output"] = None
+                record["error"] = "ConnectionError"
+            records.append(record)
+        return render_digest(
+            records,
+            {"provider": "zhipu", "model": "glm-x", "total_cost_cny": 0.0},
+            stamp="test",
+            task_cfg=task_cfg,
+        )
+
+    digest_mixed = _digest_with(["ok", "ok", "call_failed", "format_error"])
+    check("头部点名了产出不完整的条数", "2 篇产出不完整" in digest_mixed,
+          f"实际头部：{digest_mixed.splitlines()[:6]}")
+    check("头部说清了是哪几种失败", "调用失败" in digest_mixed and "产出不合规" in digest_mixed)
+    check("头部不再声称它们「没有出现在下面」（那是假的）",
+          "没有出现在下面" not in digest_mixed,
+          "失败条目其实排在「其他」组里")
+    check("头部告诉用户怎么重试这些", "--retry-failed" in digest_mixed)
+
+    digest_all_ok = _digest_with(["ok", "ok", "ok"])
+    check("全部成功时头部不出现这段（不做无谓的提醒）",
+          "产出不完整" not in digest_all_ok, "每次都提醒的话，你会开始无视它")
+
     reviewed = {
         "d1": {"included": True, "category": "产品发布", "importance": 5, "ambiguous": False},
         "d2": {"included": False, "category": None, "importance": None, "ambiguous": False},

@@ -176,11 +176,40 @@ def render_digest(
 
     rows.sort(key=lambda r: (-r["importance"], r["category"], r["title"]))
 
+    # ---- 产出不完整的那些，必须在【头部】就点明
+    #
+    # 失败的条目其实【会】出现在日报里，排在「其他」组、标着 `产出不完整`。
+    # 所以这里不能说"它们没有出现在下面" —— 那是假的。
+    #
+    # 但只在正文里标一个记号是不够的：你扫头部时看到"收录 5 条"，
+    # 会以为今天是 5 条新闻，而其中 2 条其实是失败的空壳。
+    #
+    # **"今天新闻少"和"两条没处理成功"在头部看起来完全一样。**
+    # 开头这一句就是把它们分开的那一句。
+    failed = [r for r in records if str(r.get("status") or "ok") != "ok"]
+    failure_lines: list[str] = []
+    if failed:
+        reason_label = {"format_error": "产出不合规", "call_failed": "调用失败"}
+        counts: dict[str, int] = {}
+        for record in failed:
+            key = str(record.get("status"))
+            counts[key] = counts.get(key, 0) + 1
+        detail = "，".join(f"{reason_label.get(k, k)} {v} 篇" for k, v in counts.items())
+        failure_lines = [
+            f"> **其中 {len(failed)} 篇产出不完整**（{detail}）。",
+            "> 它们排在下面「其他」里、标着 `产出不完整`，内容不可用。",
+            "> 下次跑流水线加 `--retry-failed` 可以只重试这些。",
+            "",
+        ]
+
     heads = [
         f"# 行业情报日报 · {stamp[:8]}",
         "",
         f"> 生成时间　{datetime.now().strftime('%Y-%m-%d %H:%M')}",
         f"> 收录条数　{len(rows)}",
+    ]
+    heads += failure_lines
+    heads += [
         f"> 模型　　　{summary.get('provider', '?')} / {summary.get('model', '?')}",
         f"> 本轮成本　{summary.get('total_cost_cny', 0)} 元",
         "",
