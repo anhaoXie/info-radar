@@ -185,7 +185,8 @@ def run_doctor() -> int:
     print(hr("="))
     print("  环境自检")
     print(hr("="))
-    ok = True
+    ok = True       # 环境有没有坏
+    pending = 0     # 还没做的事（不是故障）
 
     print(f"\n[Python]")
     print(f"  版本       {sys.version.split()[0]}")
@@ -214,11 +215,25 @@ def run_doctor() -> int:
     print(f"\n[密钥文件]")
     if ENV_PATH.exists():
         print(f"  .env       存在   {ENV_PATH}")
-        print(f"  已登记密钥 {loaded_secret_count()} 个（只统计看起来像密钥的变量）")
+        secrets_found = loaded_secret_count()
+        print(f"  已登记密钥 {secrets_found} 个（只统计看起来像密钥的变量）")
+        if secrets_found == 0:
+            print("  ! .env 存在，但里面一行密钥都没填。")
+            print("    打开它，在你那家的那一行等号后面粘上密钥。")
+            ok = False
     else:
-        print(f"  .env       不存在")
-        print(f"  请把 .env.example 复制一份改名为 .env，然后填 key。")
-        ok = False
+        # 「还没做」不等于「坏了」。
+        #
+        # 第一版把缺密钥记成环境故障，于是自检输出「发现问题，见上面标 ! 的行」——
+        # 可上面根本没有 ! 行，只有一个平和的事实：你还没申请密钥。
+        # 让人去找一个不存在的错误标记，比不报错更糟。
+        #
+        # 这和 S5 里「跳过 ≠ 失败」是同一条原则：
+        # **把"还没做"和"做坏了"分开报，否则你会开始无视告警。**
+        print("  ·  .env 还不存在")
+        print("     这不是故障 —— 只是你还没申请密钥。")
+        print("     怎么申请：run.cmd status  （它会把网址和步骤直接列出来）")
+        pending += 1
 
     print(f"\n[配置]")
     try:
@@ -246,9 +261,17 @@ def run_doctor() -> int:
 
     print()
     print(hr("="))
-    print("  自检通过。" if ok else "  自检发现问题，见上面标 ! 的行。")
+    if not ok:
+        print("  环境有问题，见上面标 ! 的行。")
+    elif pending:
+        print(f"  环境是好的。还有 {pending} 件事没做（上面标 · 的行）—— 那不是故障。")
+        print("  下一步：run.cmd status")
+    else:
+        print("  自检通过。")
     print(hr("="))
     print()
+    # 退出码只反映【环境有没有坏】。还没做的事不算失败 ——
+    # 否则一个正常的、只是还没配密钥的环境会被脚本判定成"坏了"。
     return 0 if ok else 1
 
 
