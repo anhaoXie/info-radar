@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import statistics
 import sys
@@ -255,6 +256,7 @@ def summarize(
         "provider": client.provider_name,
         "model": client.model,
         "task_id": task_cfg.get("id"),
+        "config_fingerprint": task_fingerprint(task_cfg),
         "eval_set": eval_set_label,
         "placeholder_data": has_placeholder,
         # 被预算中断的一轮，必须留下痕迹。
@@ -264,6 +266,23 @@ def summarize(
 
 
 # ------------------------------------------------------------------ 与上次对比
+
+
+def task_fingerprint(task_cfg: dict) -> str:
+    """任务定义的指纹 —— 用来回答"这次到底改了什么"。
+
+    只把【会影响模型行为】的字段算进去。`_` 开头的注释字段不算：
+    否则我改一句注释，你就会看到"提示词变了"，而它其实什么都没影响。
+    一个乱报变化的检测，很快就会被无视。
+
+    为什么要记这个：Rubric 里写着「一次只改一个变量」，
+    但那句话以前只是一句劝告 —— 系统不会告诉你有没有违反它。
+    而违反的代价是具体的：你同时改了提示词和模型，拿到一个 +15%，
+    却永远不知道是哪个起的作用。**这次实验白做了。**
+    """
+    payload = {k: v for k, v in task_cfg.items() if not k.startswith("_")}
+    blob = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:12]
 
 
 def find_previous_run(*, before: str, task_id: str, eval_set: str) -> tuple[Path, dict] | None:
@@ -348,6 +367,33 @@ def render_comparison(prev: dict, cur: dict, prev_label: str) -> list[str]:
     lines.append("    单条成本      " + delta(
         cur.get("cost_avg_cny"), prev.get("cost_avg_cny"),
         unit=" 元", precision=6, lower_is_better=True))
+
+    # ---- 这次到底动了几个变量
+    #
+    # Rubric 里写着「一次只改一个变量」，但那以前只是一句劝告 ——
+    # 系统不会告诉你有没有违反它。而违反的代价很具体：
+    # 你同时改了提示词和模型，拿到 +15%，却永远不知道是哪个起的作用。
+    # **这次实验白做了**，甚至更糟：你会把一个有效的改动当成无效的丢掉。
+    changed: list[str] = []
+    if prev.get("config_fingerprint") != cur.get("config_fingerprint"):
+        changed.append("任务定义（提示词/分类/输出结构）")
+    if prev.get("provider") != cur.get("provider"):
+        changed.append("厂商")
+    if prev.get("model") != cur.get("model"):
+        changed.append("模型")
+
+    if not changed:
+        lines.append("  本次改动了      什么都没改")
+        lines.append("                  → 上面那几行差别只是随机性，")
+        lines.append("                     它正好可以当「噪声有多大」的标尺。")
+    elif len(changed) == 1:
+        lines.append(f"  本次改动了      {changed[0]}")
+        lines.append("                  → 干净的实验：只动了一个变量，结论可信。")
+    else:
+        lines.append("")
+        lines.append(f"  !! 本次同时改了 {len(changed)} 个变量：{'、'.join(changed)}")
+        lines.append("     你无法知道是哪一个起的作用 —— **这次实验白做了**。")
+        lines.append("     回退掉一个，只改另一个，重跑一次。")
 
     # 噪声提醒：只差一条样本的，不要当结论。
     cur_acc, prev_acc = cur.get("category_accuracy"), prev.get("category_accuracy")

@@ -256,10 +256,17 @@ def main() -> int:
         "importance_mae": 0.85, "cost_avg_cny": 0.00031,
     }
 
+    # 按【指标名】过滤，不要按"含不含箭头" ——
+    # 新加的"本次改动了"那几行也含箭头，会把过滤条件弄松。
+    metric_names = ("分类准确率", "格式合规率", "重要性误差", "单条成本")
+
+    def metric_lines_of(lines: list[str]) -> list[str]:
+        return [line for line in lines if any(name in line for name in metric_names)]
+
     flat = eval_mod.render_comparison(base, dict(base), "x")
-    check("完全一样时显示『持平』",
-          all("持平" in line for line in flat if "→" in line),
-          f"实际 {[line for line in flat if '→' in line]}")
+    check("完全一样时每一项都显示『持平』",
+          all("持平" in line for line in metric_lines_of(flat)),
+          f"实际 {metric_lines_of(flat)}")
 
     better_lines = eval_mod.render_comparison(base, dict(base, category_accuracy=0.70), "x")
     check("准确率上升标为『变好』", any("变好" in line for line in better_lines))
@@ -276,8 +283,53 @@ def main() -> int:
           bool(cost_lines) and "0.000310" in cost_lines[0], f"实际 {cost_lines}")
 
     check("对比里含四项指标",
-          sum(1 for line in better_lines if "→" in line) >= 4,
-          f"实际 {sum(1 for line in better_lines if '→' in line)} 项")
+          len(metric_lines_of(better_lines)) == 4,
+          f"实际 {len(metric_lines_of(better_lines))} 项")
+
+    # ---- 「一次只改一个变量」这条纪律，以前只是一句劝告
+    #
+    # Rubric 写着它，但系统不会告诉你有没有违反。而违反的代价很具体：
+    # 你同时改了提示词和模型，拿到 +15%，却永远不知道是哪个起的作用。
+    # **这次实验白做了** —— 甚至更糟：你会把一个有效的改动当成无效的丢掉。
+    print("\n[⓪ 评估层 · 一次只改一个变量]")
+
+    sample_task = {
+        "id": "t",
+        "prompt": {"system": "你是助手", "few_shot": []},
+        "categories": ["甲", "乙"],
+        "_readme": "这是注释",
+    }
+    fp_base = eval_mod.task_fingerprint(sample_task)
+    fp_comment = eval_mod.task_fingerprint(dict(sample_task, _readme="换了句注释"))
+    fp_prompt = eval_mod.task_fingerprint(
+        dict(sample_task, prompt={"system": "你是助手，请更简洁", "few_shot": []}))
+
+    check("改注释不影响指纹", fp_base == fp_comment,
+          "把注释算进去的话，我改一行说明你就会看到「提示词变了」")
+    check("改提示词会改变指纹", fp_base != fp_prompt)
+    check("指纹是短的十六进制", len(fp_base) == 12 and all(c in "0123456789abcdef" for c in fp_base),
+          f"实际 {fp_base!r}")
+
+    run_base = {"category_judged": 20, "category_accuracy": 0.55, "format_ok_rate": 1.0,
+                "importance_mae": 0.85, "cost_avg_cny": 0.00031,
+                "provider": "zhipu", "model": "glm-x", "config_fingerprint": "aaa111"}
+    run_cur = dict(run_base, category_accuracy=0.70)
+
+    same_cfg = "\n".join(eval_mod.render_comparison(run_base, run_cur, "x"))
+    check("配置没变时明说「什么都没改」", "什么都没改" in same_cfg)
+    check("配置没变时点出差别只是随机性", "随机性" in same_cfg)
+
+    one_var = "\n".join(eval_mod.render_comparison(
+        run_base, dict(run_cur, config_fingerprint="bbb222"), "x"))
+    check("只改一个变量时判为「干净的实验」", "干净的实验" in one_var,
+          f"实际 {one_var[-200:]}")
+
+    two_var = "\n".join(eval_mod.render_comparison(
+        run_base, dict(run_cur, config_fingerprint="bbb222", model="另一个模型"), "x"))
+    check("同时改两个变量时判为「实验白做了」", "白做了" in two_var,
+          "不说出来的话，用户会拿这个数字下结论")
+    check("同时改两个变量时点出是哪两个", "模型" in two_var and "任务定义" in two_var)
+    check("同时改两个变量时给出补救办法", "回退" in two_var)
 
     # ---------------------------------------------------------- 账本
     print("\n[⓪⑤ 账本与预算]")
