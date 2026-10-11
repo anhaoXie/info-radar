@@ -597,13 +597,45 @@ def show_status_plain() -> int:
     print()
     print("  【现在等你做】")
     next_action_given = False
+    labels_pending = bool(labels_now) and labels_now[0] < labels_now[1]
 
     if raw_count == 0 and inbox_count == 0:
         print("    →  先抓一批文章：")
         print("         run.cmd collect")
         next_action_given = True
 
-    elif labels_now and labels_now[0] < labels_now[1]:
+    elif labels_pending and not has_key:
+        # 全新用户的状态：两条路都还没走。
+        #
+        # 【为什么这里要把两条路都摆出来】
+        #
+        # 前面几轮我一直只推"先标注 20 条"。这在工程上是对的（评估先行），
+        # 但对一个还没见过这东西能干什么的人，"先做 20 道题"是很高的门槛 ——
+        # 你还没看到任何产出，就要先付出劳动。
+        #
+        # 先看到效果再愿意测量，是更自然的顺序。
+        # 所以两条路并列，并且老实说清它们各自换来什么。
+        print("    →  选一条走就行（两条都对，不冲突）")
+        print()
+        print("       ── 路线 A · 先看效果（推荐先走这条）──")
+        print("         你能马上看到 AI 读完文章产出什么。")
+        print()
+        print("         1. 去申请一个 AI 密钥（国内几家都有免费额度）")
+        print("         2. 存成 info-radar 文件夹里的 .env 文件")
+        print("         3. run.cmd probe                 检查密钥通不通")
+        print("         4. run.cmd pipeline -Limit 5     让 AI 先处理 5 篇")
+        print("         5. run.cmd digest                看一眼日报长什么样")
+        print()
+        print("       ── 路线 B · 先打地基（不花钱、不联网）──")
+        print("         你能得到一个数字，用来判断 AI 做得准不准。")
+        print()
+        print("         双击【开始标注.cmd】，给 20 篇文章分类")
+        print("         分完跑 run.cmd compile")
+        print()
+        print("       建议先走 A —— 看到东西之后，你才会真的在乎它准不准。")
+        next_action_given = True
+
+    elif labels_pending:
         done, total = labels_now
         print("    →  给这 %d 篇文章分类" % total)
         print()
@@ -611,6 +643,8 @@ def show_status_plain() -> int:
         print("       它一条一条问你，你按一个数字就行。不用打中文。")
         print()
         print(f"       进度：{done}/{total}。随时可以关掉窗口，下次接着来。")
+        print()
+        print("       （想先看看 AI 干活也行：run.cmd pipeline -Limit 5）")
         next_action_given = True
 
     elif state != "real":
@@ -641,15 +675,11 @@ def show_status_plain() -> int:
 
     # ---------------- 做完之后能得到什么
     print()
-    print("  【做完上面那步之后，你就能】")
-    if labels_now and labels_now[0] < labels_now[1]:
-        print("    ·  让 AI 自动读这 %d 篇文章，每天写一份行业日报" % max(raw_count, 1))
-        print("    ·  每周看一眼 AI 交上来的东西，顺手改几条，它就越来越准")
-        print()
-        print("    但这两件事都还需要一个 AI 密钥 —— 那是下一步的事，先不用管。")
-    else:
-        print("    ·  让 AI 自动读这 %d 篇文章，每天写一份行业日报" % max(raw_count, 1))
-        print("    ·  它做得准不准，你有一个数字能看（而不是凭感觉）")
+    print("  【做完之后，你就能】")
+    print("    ·  让 AI 自动读这 %d 篇文章，每天写一份行业日报"
+          % max(raw_count, 1))
+    print("    ·  每周扫一眼 AI 交上来的东西，顺手改几条，它就越来越准")
+    print("    ·  有一个数字能说明它准不准 —— 而不是凭感觉")
 
     # ---------------- 警报：必须显眼
     if (PROJECT_ROOT / "out" / "ALERT.md").exists():
