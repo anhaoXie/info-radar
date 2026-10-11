@@ -786,6 +786,32 @@ def main() -> int:
                   "[假模型]" in json.dumps(run5.outcomes[0].output, ensure_ascii=False))
             check("假模型不产生成本", run5.total_cost == 0.0, f"实际 {run5.total_cost}")
 
+            # 评估层也要有假模型通道。
+            # 之前只有 pipeline 和 daily 有 --stub，eval 没有 —— 结果就是
+            # 【你唯一要花钱的那一步，偏偏是唯一不能预览的那一步】。
+            # 现在补上了，这里守一条回归：假模型必须能跑完整条评估链路。
+            stub_eval_records, stub_eval_truncated = run_evaluation(
+                StubClient(), task_cfg, eval_rows, params=task_cfg["prompt"]["params"], echo=False
+            )
+            check("假模型能跑完整条评估链路", len(stub_eval_records) == 3,
+                  f"实际 {len(stub_eval_records)} 条")
+            check("假模型的输出全部结构合规",
+                  all(r.get("format_ok") for r in stub_eval_records),
+                  "假模型产出了不合结构的 JSON —— 那样 --stub 就验证不了链路")
+            check("假模型评估不会误报中断", stub_eval_truncated is False)
+            stub_eval_metrics = summarize(
+                stub_eval_records,
+                client=StubClient(),
+                task_cfg=task_cfg,
+                set_path=PROJECT_ROOT / "eval" / "eval_set.jsonl",
+                has_placeholder=True,
+                truncated=False,
+            )
+            check("假模型评估的成本是 0", stub_eval_metrics["cost_total_cny"] == 0.0)
+            check("假模型的准确率算出来了（它是 0，因为假模型永远答「其他」）",
+                  stub_eval_metrics["category_accuracy"] == 0.0,
+                  f"实际 {stub_eval_metrics['category_accuracy']}")
+
             # ---------------------------------------------------- 大声失败
             print("\n[⑤ 权限层 · 大声失败的三条保证]")
 

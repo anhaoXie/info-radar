@@ -94,8 +94,23 @@ def show_progress() -> int:
     results = find_eval_results()
     state = eval_set_state()
     rows = count_eval_set_rows()
-    if results:
-        s1_status = "OK"
+
+    # 先把最近一次结果的 metrics 读出来，再决定 S1 该显示什么。
+    # 顺序反了会得到一个具体的坏结果：跑一次 eval --stub 预览，
+    # S1 就变成 [OK]，看起来像你已经有了基线。
+    latest: Path | None = results[-1] if results else None
+    metrics: dict = {}
+    if latest is not None:
+        try:
+            metrics = json.loads(latest.read_text(encoding="utf-8")).get("metrics", {})
+        except (json.JSONDecodeError, OSError):
+            metrics = {}
+
+    stub_only = bool(metrics.get("stub"))
+    if results and not stub_only:
+        s1_status = "有基线"
+    elif stub_only:
+        s1_status = "仅预览"
     elif state == "real":
         s1_status = "有评估集"
     else:
@@ -117,27 +132,23 @@ def show_progress() -> int:
     elif labels_now:
         print(f"       标注进度 {labels_now[0]}/{labels_now[1]}   <- 已填完，跑 run.cmd compile")
 
-    if results:
-        latest = results[-1]
-        try:
-            payload = json.loads(latest.read_text(encoding="utf-8"))
-            metrics = payload.get("metrics", {})
-            accuracy = metrics.get("category_accuracy")
-            accuracy_text = f"{accuracy * 100:.1f}%" if accuracy is not None else "无真值"
-            placeholder = "  [占位数据]" if metrics.get("placeholder_data") else ""
-            print(f"       最近一次 {latest.name}{placeholder}")
-            if metrics.get("truncated"):
-                print("       !! 这一轮被预算中断，只跑了一部分 —— 不是完整基线")
-            print(
-                f"       格式合规 {metrics.get('format_ok_rate', 0) * 100:.1f}%   "
-                f"分类准确 {accuracy_text}   单条成本 {metrics.get('cost_avg_cny', 0)} 元"
-            )
-            print(
-                f"       模型 {metrics.get('provider')} / {metrics.get('model')}   "
-                f"延迟 P50 {metrics.get('latency_p50_ms')}ms"
-            )
-        except (json.JSONDecodeError, OSError):
-            print("       （最近一次结果读不出来，可能写坏了）")
+    if latest is not None:
+        accuracy = metrics.get("category_accuracy")
+        accuracy_text = f"{accuracy * 100:.1f}%" if accuracy is not None else "无真值"
+        placeholder = "  [占位数据]" if metrics.get("placeholder_data") else ""
+        print(f"       最近一次 {latest.name}{placeholder}")
+        if metrics.get("stub"):
+            print("       !! 这一次用的是【假模型】，数字没有意义 —— 这不是你的基线")
+        if metrics.get("truncated"):
+            print("       !! 这一轮被预算中断，只跑了一部分 —— 不是完整基线")
+        print(
+            f"       格式合规 {metrics.get('format_ok_rate', 0) * 100:.1f}%   "
+            f"分类准确 {accuracy_text}   单条成本 {metrics.get('cost_avg_cny', 0)} 元"
+        )
+        print(
+            f"       模型 {metrics.get('provider')} / {metrics.get('model')}   "
+            f"延迟 P50 {metrics.get('latency_p50_ms')}ms"
+        )
 
     # ---- S2
     raw_count = count_files("data/raw")
@@ -399,7 +410,8 @@ def show_help() -> int:
     print("    run.cmd ledger          今天花了多少、慢不慢、哪一步在花钱")
     print()
     print("  当前状态：S0（地基）—— 等你在 .env 里填 key")
-    print("  必读：docs/00-架构蓝图.md")
+    print("  必读：docs/03-完整走一遍.md  ← 手把手走查，从这里开始")
+    print("        docs/00-架构蓝图.md    ← 六层结构的心智模型")
     print()
     return 0
 

@@ -249,6 +249,7 @@ def main() -> int:
     parser.add_argument("--limit", "-Limit", "-limit", type=int, default=0, help="只跑前 N 条（0 表示全部）")
     parser.add_argument("--provider", "-Provider", default=None, help="指定厂商（默认自动选有密钥的那个）")
     parser.add_argument("--model", "-Model", default=None, help="指定模型")
+    parser.add_argument("--stub", "-Stub", action="store_true", help="用假模型跑，验证链路，不需要密钥")
     parser.add_argument("--out-dir", default="out/eval", help="结果输出目录")
     args = parser.parse_args()
 
@@ -265,13 +266,33 @@ def main() -> int:
     budget = Budget(policy, ledger=ledger)
     params = task_cfg.get("prompt", {}).get("params", {})
 
-    try:
-        client = LLMClient(
-            args.provider, model=args.model, policy_cfg=policy, ledger=ledger, budget=budget
-        )
-    except (LLMError, RuntimeError) as exc:
-        print(f"\n[错误] {exc}\n")
-        return 2
+    if args.stub:
+        # 【为什么 eval 也需要 --stub】
+        #
+        # pipeline 和 daily 都有假模型模式，eval 本来没有 —— 这是个不一致：
+        # **你唯一要花钱的那一步，偏偏是唯一不能预览的那一步。**
+        #
+        # 一个只在花钱那一刻才第一次运行的命令，你会对它充满陌生感：
+        # 不知道输出长什么样、不知道要等多久、不知道正常是什么样子。
+        # 于是你迟迟不跑它 —— 而"迟迟不跑评估"正是这套系统最想避免的事。
+        from src.pipeline import StubClient
+
+        client = StubClient()
+        print()
+        print("  " + "!" * 64)
+        print("  --stub：正在用【假模型】跑评估。")
+        print("  它永远回答「其他」这个分类，所以下面的准确率【没有意义】。")
+        print("  这个命令验证的是【链路】—— 指标算得对不对、审核表长什么样、")
+        print("  结果文件写在哪。要真数字，去掉 --stub。")
+        print("  " + "!" * 64)
+    else:
+        try:
+            client = LLMClient(
+                args.provider, model=args.model, policy_cfg=policy, ledger=ledger, budget=budget
+            )
+        except (LLMError, RuntimeError) as exc:
+            print(f"\n[错误] {exc}\n")
+            return 2
 
     print("=" * 68)
     print(f"评估集    {set_path.relative_to(PROJECT_ROOT)}  共 {len(rows)} 条")
@@ -296,6 +317,14 @@ def main() -> int:
         has_placeholder=has_placeholder,
         truncated=truncated,
     )
+    # 假模型跑出来的数字必须能被识别出来。
+    # 它和 label_origin、truncated 是同一条思路：
+    # **记下来，但显式标注** —— 而不是不记，或者记了却不说是假的。
+    # 不标注的后果很具体：三周后你翻 out/eval/ 找"上次基线是多少"，
+    # 会翻到一份 0% 准确率的假模型结果，然后花半小时怀疑人生。
+    metrics["stub"] = bool(args.stub)
+    if args.stub:
+        metrics["provider"] = "stub"
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir = PROJECT_ROOT / args.out_dir
@@ -315,8 +344,17 @@ def main() -> int:
     accuracy = metrics["category_accuracy"]
     print()
     print("=" * 68)
-    print("  本次结果（这就是你的基线）" if not truncated else "  本次结果（被预算中断，没有跑完）")
+    if truncated:
+        print("  本次结果（被预算中断，没有跑完）")
+    elif args.stub:
+        print("  本次结果（假模型，仅供预览 ——【不是】你的基线）")
+    else:
+        print("  本次结果（这就是你的基线）")
     print("=" * 68)
+    if args.stub:
+        print("  !! 上面那个数字来自假模型，它永远回答「其他」。")
+        print("     链路是通的，数字是空的。真正的基线要等 .env 配好之后不带 --stub 跑。")
+        print()
     if truncated:
         print(f"  !! 这一轮在第 {metrics['total']} 条之后因预算中止。")
         print("     结果文件里记着 truncated=true —— 别在两周后把这一份当成完整基线。")
@@ -345,6 +383,8 @@ def main() -> int:
     print()
     if truncated:
         print("  下一步：调大 config/policy.json 的 budget 限额，或分批跑。")
+    elif args.stub:
+        print("  下一步：填 .env，跑 run.cmd probe，然后去掉 --stub 跑一次真的。")
     else:
         print("  下一步：把人看出来的问题，变成 eval/eval_set.jsonl 里的真值。")
     print()
@@ -363,6 +403,11 @@ def _render_review(records: list[dict], metrics: dict, stamp: str) -> str:
         *(
             ["**这一轮被预算中断，没有跑完 —— 不要把它当成完整基线。**", ""]
             if metrics.get("truncated")
+            else []
+        ),
+        *(
+            ["**这一轮的模型是假的（--stub），内容没有意义 —— 这张表只是让你看格式。**", ""]
+            if metrics.get("stub")
             else []
         ),
         f"- 任务：`{metrics.get('task_id')}`",
