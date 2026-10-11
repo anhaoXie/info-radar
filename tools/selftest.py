@@ -466,6 +466,45 @@ def main() -> int:
           "顺序乱了的话，人得来回找对应的行")
     check("速览版确实比全文版短得多", len(lite) < 6000, f"实际 {len(lite)} 字符")
 
+    # 标注向导：它要替用户省掉的，是"在两个文件之间对 20 个十六进制编号"这种麻烦。
+    # 所以这里守的是【存盘格式】—— 向导写出来的东西必须能被 compile 正确读回，
+    # 否则用户辛苦点完 20 条，最后编译报错，那就彻底白干了。
+    with tempfile.TemporaryDirectory() as tmp:
+        real_labels = make_eval_set.LABELS_PATH
+        make_eval_set.LABELS_PATH = Path(tmp) / "labels.txt"
+        make_eval_set.LABELS_PATH.write_text(
+            "# 标注表 · 4 条\n# 这是表头，不能被向导弄丢\n\n"
+            "w1 |  | \nw2 |  | \nw3 |  | \nw4 |  | \n",
+            encoding="utf-8",
+        )
+        try:
+            make_eval_set._rewrite_labels(
+                ["w1", "w2", "w3", "w4"],
+                {
+                    "w1": ("模型与技术", 4, False),
+                    "w2": (None, None, True),      # 用户选了"拿不准"
+                    "w3": ("产品发布", 2, False),
+                    # w4 没答
+                },
+            )
+            written = make_eval_set.LABELS_PATH.read_text(encoding="utf-8")
+            back = make_eval_set.parse_labels(make_eval_set.LABELS_PATH)
+        finally:
+            make_eval_set.LABELS_PATH = real_labels
+
+    check("向导写出的表头被保留", "这是表头，不能被向导弄丢" in written,
+          "表头丢了，用户就看不到填法说明")
+    check("向导写出的顺序和原顺序一致",
+          [written.index(f"w{i} |") for i in (1, 2, 3, 4)] == sorted(written.index(f"w{i} |") for i in (1, 2, 3, 4)))
+    check("向导把分类和重要性写成了可编译的格式",
+          back.get("w1") == ("模型与技术", 4, False), f"实际 {back.get('w1')}")
+    check("「拿不准」被写成问号并保留",
+          back.get("w2") == (None, None, True), f"实际 {back.get('w2')}")
+    check("没答的条目保持空白，不会被误写成已填",
+          back.get("w4") == (None, None, False), f"实际 {back.get('w4')}")
+    check("向导写出的文件能被 parse_labels 完整读回（编译的前提）",
+          len(back) == 4, f"实际读回 {len(back)} 条")
+
     # ---------------------------------------------------------- ④ 分发层
     print("\n[④ 分发层 · 日报渲染与审核解析]")
 

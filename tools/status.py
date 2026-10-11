@@ -248,12 +248,13 @@ def show_progress() -> int:
     # 下一步由数据决定，不写死。
     if labels_now and labels_now[0] < labels_now[1]:
         filled, total = labels_now
-        print(f"  下一步：打开 eval/worksheet-lite.md 扫一遍（标题+开头，5 分钟）")
-        print(f"         （当前 {filled}/{total}）填完跑 run.cmd compile")
+        print(f"  下一步：run.cmd wizard")
+        print(f"         它会一条一条问你这 20 篇属于什么类别 —— 你只需要按数字。")
+        print(f"         （已填 {filled}/{total}，随时可以停下来，进度会存着）")
     elif state == "placeholder" and not health:
         print("  下一步：run.cmd collect 抓一批文档，或 run.cmd inbox 用你自己的文档")
     elif state != "real":
-        print("  下一步：run.cmd sample -N 20")
+        print("  下一步：run.cmd wizard  （一条一条问你，按数字就行）")
     elif not results:
         print("  下一步：run.cmd eval -Limit 3  先花几分钱验证链路")
     else:
@@ -401,10 +402,11 @@ def show_help() -> int:
     print("    run.cmd daily                 真正跑一次（要密钥）")
     print("    run.cmd daily --continue-on-error  失败后继续（默认会停下）")
     print()
-    print("  标注（S1 的核心工作，唯一不能交给 AI 的一步）")
-    print("    run.cmd sample -N 20    抽 20 条，生成标注表和阅读工作纸")
-    print("    run.cmd labels          看标注进度")
-    print("    run.cmd compile         把标注编译成 eval/eval_set.jsonl")
+    print("  标注（唯一不能交给 AI 的一步，也是你现在唯一要做的事）")
+    print("    run.cmd wizard           【就做这个】它一条一条问你，你按数字就行")
+    print("    run.cmd labels           看标注进度")
+    print("    run.cmd compile          填完之后生成评估集")
+    print("    （也可以手工填 eval/labels.txt —— 见 eval/worksheet-lite.md，但 wizard 更省事）")
     print()
     print("  账目")
     print("    run.cmd ledger          今天花了多少、慢不慢、哪一步在花钱")

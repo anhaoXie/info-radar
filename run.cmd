@@ -19,6 +19,7 @@ REM    run.cmd probe
 REM    run.cmd collect
 REM    run.cmd inbox
 REM    run.cmd sample -N 20
+REM    run.cmd wizard
 REM    run.cmd labels
 REM    run.cmd compile
 REM    run.cmd pipeline
@@ -56,6 +57,7 @@ if /i "%CMD%"=="probe"    goto :c_probe
 if /i "%CMD%"=="collect"  goto :c_collect
 if /i "%CMD%"=="inbox"    goto :c_inbox
 if /i "%CMD%"=="sample"   goto :c_sample
+if /i "%CMD%"=="wizard"   goto :c_wizard
 if /i "%CMD%"=="labels"   goto :c_labels
 if /i "%CMD%"=="compile"  goto :c_compile
 if /i "%CMD%"=="pipeline" goto :c_pipeline
@@ -106,6 +108,10 @@ exit /b %ERRORLEVEL%
 
 :c_sample
 python tools\make_eval_set.py --sample %REST%
+exit /b %ERRORLEVEL%
+
+:c_wizard
+python tools\make_eval_set.py --wizard
 exit /b %ERRORLEVEL%
 
 :c_labels

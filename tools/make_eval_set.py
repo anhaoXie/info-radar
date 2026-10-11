@@ -419,6 +419,205 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_wizard(args: argparse.Namespace) -> int:
+    """标注向导：一条一条问，你只需要按数字。
+
+    【为什么要有这个】
+
+    原来的标注流程要求你做这些事：
+        跑到某个文件夹 → 用记事本打开一个 .md → 在一堆 # 和 * 里找正文
+        → 打开另一个文件 → 在 20 个十六进制编号之间来回对照 → 保存
+        → 而且不能存错编码
+
+    这一串全是【我】制造出来的麻烦，和技术本身毫无关系。
+    一个不懂技术的人卡在这些步骤上，是完全正常的。
+
+    向导把这些全部去掉：
+        打开一个窗口 → 它显示第 1 条 → 你按一个数字 → 它显示第 2 条 → ……
+
+    设计上有意的几条：
+      · 只按数字，不用打中文（输入法切换是真实存在的摩擦）
+      · 每答一条立刻存盘 —— 你随时关掉窗口，已经答完的不会丢
+      · 再打开时自动从没答完的地方继续
+      · 想不起来这条讲什么，按 m 看全文
+      · 输入什么都不对的时候，它再说一遍怎么输，而不是报错退出
+    """
+    task = load_task()
+    categories = task.get("categories", [])
+    scale = task.get("importance_scale", {})
+
+    if not CANDIDATES_PATH.exists():
+        print("\n  还没有可标注的样本。先跑：run.cmd sample -N 20\n")
+        return 2
+
+    candidates = [
+        json.loads(line)
+        for line in CANDIDATES_PATH.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    order = [item["id"] for item in candidates]
+    by_id = {item["id"]: item for item in candidates}
+    answers = parse_labels(LABELS_PATH)
+
+    def is_done(item_id: str) -> bool:
+        category, importance, ambiguous = answers.get(item_id, (None, None, False))
+        return bool(ambiguous or (category and importance))
+
+    remaining = [item_id for item_id in order if not is_done(item_id)]
+    done = len(order) - len(remaining)
+
+    print()
+    print("=" * 66)
+    print(f"  标注向导　共 {len(order)} 条，已填 {done} 条，还剩 {len(remaining)} 条")
+    print("=" * 66)
+    if not remaining:
+        print()
+        print("  全部填完了。跑：run.cmd compile")
+        print()
+        return 0
+
+    print()
+    print("  一次问一条。看懂了就按一个数字，不用打中文。")
+    print("  随时按 Ctrl+C 退出 —— 已经答完的会立刻存盘，下次接着来。")
+    print()
+
+    def save() -> None:
+        _rewrite_labels(order, answers)
+
+    def show(item_id: str, index: int) -> None:
+        item = by_id[item_id]
+        body = " ".join(str(item.get("body", "")).split())
+        # candidates.jsonl 里没有 body_chars 字段，直接数一遍就行。
+        # 第一版用了 item.get("body_chars", 0)，于是每条都显示"0 字"。
+        chars = len(body)
+        print()
+        print("-" * 66)
+        print(f"  【第 {index} 条 / 还剩 {len(remaining) - index + 1} 条】")
+        print()
+        print(f"  {item.get('title', '')}")
+        print(f"  来源：{item.get('source', '')}　·　{chars} 字")
+        print()
+        # 不做自己折行 —— 交给终端去折。
+        # 第一版按"显示宽度"折行，结果把英文单词从中间劈开了
+        # （"...Tsinghua Un / iversity..."），读起来非常难受。
+        # 终端自己会按空格折，比我手写的规则好得多。
+        print(f"  {body[:400]}")
+        if chars > 400:
+            print()
+            print("  （开头只显示这么多。想看全文就按 m）")
+
+    def ask_number(prompt: str, valid: range | list[int], hint: str) -> int | str | None:
+        """问一个数字。返回 None 表示"拿不准"，返回 'quit' 表示要退出。"""
+        while True:
+            try:
+                raw = input(prompt).strip()
+            except EOFError:
+                return "quit"
+            if raw.lower() == "q":
+                return "quit"
+            if raw == "":
+                print(f"  （{hint}）")
+                continue
+            if raw in ("0", "?"):
+                return None
+            if raw.isdigit() and int(raw) in list(valid):
+                return int(raw)
+            print(f"  （看不懂 {raw!r}。{hint}）")
+
+    try:
+        for index, item_id in enumerate(remaining, 1):
+            item = by_id[item_id]
+            show(item_id, index)
+
+            # ---- 分类
+            print()
+            print("  它属于哪一类？")
+            for number, name in enumerate(categories, 1):
+                print(f"    {number}. {name}")
+            print("    0. 拿不准（记为 ?，不计入准确率）")
+            print()
+            choice = ask_number(
+                "  请输入数字后回车：",
+                range(1, len(categories) + 1),
+                f"请输入 1 到 {len(categories)} 之间的数字，或 0 表示拿不准",
+            )
+            if choice == "quit":
+                raise KeyboardInterrupt
+            category = None if choice is None else categories[choice - 1]
+
+            # ---- 重要性
+            importance = None
+            if category is not None:
+                print()
+                print("  有多重要？")
+                for key, value in sorted(scale.items(), key=lambda kv: str(kv[0]), reverse=True):
+                    print(f"    {key}. {value}")
+                print()
+                pick = ask_number(
+                    "  请输入 1-5 后回车：",
+                    range(1, 6),
+                    "请输入 1 到 5 之间的数字",
+                )
+                if pick == "quit":
+                    raise KeyboardInterrupt
+                importance = None if pick is None else int(pick)
+
+            answers[item_id] = (category, importance, category is None)
+            save()
+            mark = "?" if category is None else f"{category} / {importance}"
+            print()
+            print(f"  ── 已记录：{mark}　（已存盘）")
+
+    except (KeyboardInterrupt, EOFError):
+        print()
+        print()
+        print("  停在这里了。已经答完的都存好了，下次跑 run.cmd wizard 会接着问。")
+        save()
+
+    answered = sum(1 for item_id in order if is_done(item_id))
+    print()
+    print("=" * 66)
+    print(f"  进度 {answered}/{len(order)}")
+    print("=" * 66)
+    if answered >= len(order):
+        print()
+        print("  全部填完了。下一步：")
+        print("    run.cmd compile")
+    else:
+        print()
+        print("  还没填完。接着填：run.cmd wizard")
+    print()
+    return 0
+
+
+def _rewrite_labels(order: list[str], answers: dict) -> None:
+    """把 answers 写回 labels.txt，保持原有的顺序和表头。"""
+    header: list[str] = []
+    if LABELS_PATH.exists():
+        for line in LABELS_PATH.read_text(encoding="utf-8").splitlines():
+            if line.startswith("#") or not line.strip():
+                header.append(line)
+            elif "|" not in line:
+                header.append(line)
+    if not header:
+        header = [f"# 标注表 · {len(order)} 条", "# 格式：<id> | 分类 | 重要性", ""]
+
+    rows = []
+    for item_id in order:
+        category, importance, ambiguous = answers.get(item_id, (None, None, False))
+        if ambiguous:
+            rows.append(f"{item_id} | ? | ?")
+        elif category and importance:
+            rows.append(f"{item_id} | {category} | {importance}")
+        else:
+            rows.append(f"{item_id} |  | ")
+
+    # 表头末尾补一个空行，再跟数据
+    while header and not header[-1].strip():
+        header.pop()
+    LABELS_PATH.write_text("\n".join(header + [""] + rows) + "\n", encoding="utf-8")
+
+
 def cmd_compile(args: argparse.Namespace) -> int:
     task = load_task()
     categories = task.get("categories", [])
@@ -592,6 +791,8 @@ def main() -> int:
     parser.add_argument("--sample", "-Sample", action="store_true", help="抽样本，生成标注表")
     parser.add_argument("--compile", "-Compile", action="store_true", help="把标注编译成评估集")
     parser.add_argument("--status", "-Status", action="store_true", help="查看标注进度")
+    parser.add_argument("--wizard", "-Wizard", action="store_true",
+                        help="一条一条问你的标注向导（推荐：不用打中文，不用对编号）")
     parser.add_argument("-N", "--count", type=int, default=20, help="抽多少条（默认 20）")
     parser.add_argument("--min-chars", type=int, default=300, help="正文短于这个字数的不要")
     parser.add_argument("--per-source-cap", type=int, default=6, help="同一来源最多取几条")
@@ -599,6 +800,8 @@ def main() -> int:
     parser.add_argument("--force", action="store_true", help="覆盖已有的评估集")
     args = parser.parse_args()
 
+    if args.wizard:
+        return cmd_wizard(args)
     if args.compile:
         return cmd_compile(args)
     if args.status:
