@@ -69,6 +69,7 @@ class LLMResult:
     cost_known: bool = False
     attempts: int = 1
     request_id: str = ""
+    json_mode_dropped: bool = False
 
     def as_ledger_fields(self) -> dict:
         return {
@@ -82,6 +83,10 @@ class LLMResult:
             "cost_known": self.cost_known,
             "attempts": self.attempts,
             "request_id": self.request_id,
+            # 记下"这家不接受 response_format，被自动降级了"。
+            # 结果是好的，但这件事值得留下痕迹：它意味着这家厂商
+            # 并不是它声称的那个"完全兼容"，你以后换模型时要心里有数。
+            "json_mode_dropped": self.json_mode_dropped,
         }
 
 
@@ -234,6 +239,7 @@ class LLMClient:
             payload["response_format"] = {"type": "json_object"}
 
         last_error: Exception | None = None
+        json_mode_dropped = False
 
         for attempt in range(1, attempts_allowed + 1):
             self.budget.check()
@@ -252,6 +258,35 @@ class LLMClient:
             except requests.RequestException as exc:
                 raise LLMError(f"请求发送失败：{type(exc).__name__}: {exc}") from exc
 
+            # ---- 厂商不接受 response_format 时，去掉它再试一次
+            #
+            # "OpenAI 兼容"是各家自己声称的，实际支持的参数并不一致。
+            # 有的厂商（或它下面的某些模型）看到 response_format 直接回 400。
+            #
+            # 而这件事用户完全无从判断：他照着提示做对了每一步，
+            # 得到的却是一句"HTTP 400"，而真正的解法是"去掉一个参数"。
+            #
+            # 好消息是去掉它是安全的：任务的系统提示词里本来就写着
+            # "只输出一个 JSON 对象"，所以即使没有 response_format，
+            # 模型通常照样会输出 JSON —— 真输出不了，也会被解析器和校验拦下来，
+            # 而不是悄悄通过。
+            if response.status_code == 400 and "response_format" in payload:
+                payload.pop("response_format", None)
+                json_mode_dropped = True
+                try:
+                    response = self.session.post(
+                        self._endpoint("chat/completions"),
+                        headers=self._headers(),
+                        json=payload,
+                        timeout=self.timeout,
+                    )
+                except (requests.Timeout, requests.ConnectionError) as exc:
+                    last_error = RetryableLLMError(f"网络层失败：{type(exc).__name__}: {exc}")
+                    self._sleep_backoff(attempt, attempts_allowed)
+                    continue
+                except requests.RequestException as exc:
+                    raise LLMError(f"请求发送失败：{type(exc).__name__}: {exc}") from exc
+
             latency_ms = int((time.perf_counter() - started) * 1000)
 
             if response.status_code != 200:
@@ -269,7 +304,7 @@ class LLMClient:
                     f"服务端返回的不是 JSON（HTTP 200）：{mask(response.text[:300])}"
                 ) from exc
 
-            return self._finalize(data, use_model, latency_ms, attempt, purpose)
+            return self._finalize(data, use_model, latency_ms, attempt, purpose, json_mode_dropped)
 
         raise RetryableLLMError(
             f"重试 {attempts_allowed} 次后仍然失败：{last_error}\n"
@@ -277,7 +312,13 @@ class LLMClient:
         )
 
     def _finalize(
-        self, data: dict, model: str, latency_ms: int, attempt: int, purpose: str
+        self,
+        data: dict,
+        model: str,
+        latency_ms: int,
+        attempt: int,
+        purpose: str,
+        json_mode_dropped: bool = False,
     ) -> LLMResult:
         text = self._extract_text(data)
         usage = data.get("usage") or {}
@@ -298,6 +339,7 @@ class LLMClient:
             cost_known=known,
             attempts=attempt,
             request_id=str(data.get("id") or ""),
+            json_mode_dropped=json_mode_dropped,
         )
 
         self.budget.commit(cost=cost, tokens=t_tok)

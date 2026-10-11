@@ -195,6 +195,14 @@ class MockHandler(BaseHTTPRequestHandler):
 
         # ---- 触发失败：真实服务端不会按你要求失败，假服务端会
 
+        if "TRIGGER_REJECT_JSON_MODE" in text and "response_format" in body:
+            # "OpenAI 兼容"是各家自己声称的，实际支持的参数并不一致。
+            self._send(
+                400,
+                {"error": {"message": "invalid parameter: response_format is not supported"}},
+            )
+            return
+
         if "TRIGGER_FATAL_401" in text:
             # 故意在错误信息里回显密钥，用来验证客户端会不会把它泄漏到日志里
             self._send(401, {"error": {"message": f"invalid api key: {MOCK_KEY}"}})
@@ -572,6 +580,35 @@ def main() -> int:
                       "密钥明明是好的，却因为列不出模型而报错 —— 这正是要避免的死局")
             finally:
                 server.httpd.state["models_404"] = False  # type: ignore[attr-defined]
+
+            # 有的厂商（或它下面的某些模型）看到 response_format 直接回 400。
+            # 用户完全无从判断：他每一步都做对了，拿到的却是一句 HTTP 400，
+            # 而真正的解法是"去掉一个参数"。
+            print("\n[② 模型层 · 厂商拒绝 response_format 时]")
+            before = len(server.requests)
+            recovered = client.chat(
+                [{"role": "user", "content": "TRIGGER_REJECT_JSON_MODE 给我结果"}],
+                json_mode=True,
+                purpose="mocktest:jsonfallback",
+            )
+            check("厂商拒绝 response_format 时会自动去掉它再试一次",
+                  "模拟摘要内容" in recovered.text, f"实际 {recovered.text[:70]!r}")
+            check("这件事被记在结果里，不是悄悄吞掉",
+                  recovered.json_mode_dropped is True,
+                  "自动降级必须留痕 —— 否则你以后换模型时不知道这家并不完全兼容")
+            check("确实发了两次请求（一次带参数、一次不带）",
+                  len(server.requests) - before == 2,
+                  f"实际 {len(server.requests) - before} 次")
+            retry_body = server.requests[-1]["body"]
+            check("重试那次真的去掉了 response_format",
+                  "response_format" not in retry_body, f"实际 {retry_body.get('response_format')}")
+            check("重试没有丢掉别的参数",
+                  retry_body.get("model") == "mock-model-1" and bool(retry_body.get("messages")),
+                  "去掉一个参数不该顺手把请求改坏")
+            ledger_rows = ledger.read_today()
+            check("账本里记下了这次降级",
+                  any(r.get("json_mode_dropped") for r in ledger_rows),
+                  "账本是审计用的，降级这种事必须在里面")
 
             # ---------------------------------------------------- 真实任务链路
             print("\n[ⓞ→② 端到端 · 任务定义 → 消息 → 模型 → 校验]")

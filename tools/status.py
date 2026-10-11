@@ -343,6 +343,10 @@ def show_ledger() -> int:
     if retried:
         print(f"  发生过重试   {len(retried)} 次  <-- 值得看一眼，可能是网络或限流")
 
+    dropped_json = [r for r in calls if r.get("json_mode_dropped")]
+    if dropped_json:
+        print(f"  JSON 模式降级 {len(dropped_json)} 次  <-- 这家厂商不接受 response_format，已自动去掉重试")
+
     # 按用途分组：这是"哪一步在花钱"的唯一答案
     by_purpose: dict[str, dict] = {}
     for row in calls:
