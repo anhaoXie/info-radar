@@ -108,23 +108,12 @@ def show_progress() -> int:
         print("       ^ 现在是占位数据，只能验证链路，不能代表真实效果")
         print("         用 run.cmd inbox 导入你自己的文档，再 run.cmd sample -N 20")
 
-    candidates_path = PROJECT_ROOT / "eval" / "candidates.jsonl"
-    labels_path = PROJECT_ROOT / "eval" / "labels.txt"
-    if candidates_path.exists():
-        try:
-            total = len([ln for ln in candidates_path.read_text(encoding="utf-8").splitlines() if ln.strip()])
-        except OSError:
-            total = 0
-        filled = 0
-        if labels_path.exists():
-            for line in labels_path.read_text(encoding="utf-8").splitlines():
-                stripped = line.strip()
-                if not stripped or stripped.startswith("#") or "|" not in stripped:
-                    continue
-                parts = [p.strip() for p in stripped.split("|")]
-                if len(parts) >= 3 and parts[1] and parts[2]:
-                    filled += 1
-        print(f"       标注进度 {filled}/{total}" + ("   <- 填完跑 run.cmd compile" if filled < total else "   <- 跑 run.cmd compile"))
+    labels_now = label_progress()
+    if labels_now and labels_now[0] < labels_now[1]:
+        filled, total = labels_now
+        print(f"       标注进度 {filled}/{total}   <- 填完跑 run.cmd compile")
+    elif labels_now:
+        print(f"       标注进度 {labels_now[0]}/{labels_now[1]}   <- 已填完，跑 run.cmd compile")
 
     if results:
         latest = results[-1]
@@ -243,14 +232,48 @@ def show_progress() -> int:
 
     print()
     print(hr())
-    if state == "placeholder" and not results:
-        print("  下一步：run.cmd inbox —— 把你真正关心的文档丢进 data/inbox/")
+    # 下一步由数据决定，不写死。
+    if labels_now and labels_now[0] < labels_now[1]:
+        filled, total = labels_now
+        print(f"  下一步：打开 eval/worksheet.md 通读一遍，把判断填进 eval/labels.txt")
+        print(f"         （当前 {filled}/{total}）填完跑 run.cmd compile")
+    elif state == "placeholder" and not health:
+        print("  下一步：run.cmd collect 抓一批文档，或 run.cmd inbox 用你自己的文档")
     elif state != "real":
         print("  下一步：run.cmd sample -N 20")
+    elif not results:
+        print("  下一步：run.cmd eval -Limit 3  先花几分钱验证链路")
     else:
-        print("  下一步：run.cmd eval")
+        print("  下一步：run.cmd eval  跑完整基线")
     print()
     return 0
+
+
+def label_progress() -> tuple[int, int] | None:
+    """标注进度。返回 (已填, 总数)，没有抽样任务时返回 None。
+
+    "下一步该做什么"这件事必须由数据决定，不能写死。
+    第一版把下一步写成了固定的 "run.cmd inbox"，
+    于是即使 20 条样本已经抽好摆在那里，它还在让你先去导入文档。
+    """
+    candidates_path = PROJECT_ROOT / "eval" / "candidates.jsonl"
+    labels_path = PROJECT_ROOT / "eval" / "labels.txt"
+    if not candidates_path.exists():
+        return None
+    try:
+        total = len([ln for ln in candidates_path.read_text(encoding="utf-8").splitlines() if ln.strip()])
+    except OSError:
+        return None
+    filled = 0
+    if labels_path.exists():
+        for line in labels_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "|" not in stripped:
+                continue
+            parts = [p.strip() for p in stripped.split("|")]
+            if len(parts) >= 3 and parts[1] and parts[2]:
+                filled += 1
+    return filled, total
 
 
 def row_count_text(count: int) -> str:

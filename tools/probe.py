@@ -256,56 +256,117 @@ def run_doctor() -> int:
 
 
 def check_sources() -> int:
+    """真实抓一遍所有启用的源，并量出【它们到底给了多少可用正文】。
+
+    【为什么不是只报"抓到几条"】
+
+    第一版这个命令只报条数和字节数。那两个数字会骗人：
+
+        量子位      抓到 10 条   ← 看起来挺好
+        Wired       抓到 50 条   ← 看起来更好
+        极客公园    抓到 30 条
+
+    但它们的可用正文长度中位数分别是 17 字、129 字、4549 字。
+    前两个源一条都用不上 —— 因为"摘要"这个任务需要正文，而它们只给一句话。
+
+    **所以这个命令唯一有意义的输出是"可用几条"，不是"抓到几条"。**
+    一个只报条数的检查，会让人以为源是好的。
+    """
+    import statistics
+    import time as _time
+
+    from src.collect import parse_feed
     from src.config import load_sources
 
     config = load_sources()
+    fetch_cfg = config.get("fetch") or {}
+    min_chars = int(fetch_cfg.get("min_body_chars", 200))
     sources = [s for s in config.get("sources", []) if s.get("enabled") and s.get("url")]
 
     print()
     print(hr("="))
-    print("  信息源检查（真实抓取）")
+    print(f"  信息源检查（真实抓取）　可用正文线：{min_chars} 字")
     print(hr("="))
 
     if not sources:
-        print("\n  config/sources.json 里没有启用任何源。")
-        print("  这是 S2 阶段的事。现在只需要知道：加源的时候，")
-        print("  一定要先跑这个命令验证它是活的 —— 一个死掉的源会静默产出空结果。\n")
+        print("\n  config/sources.json 里没有启用任何源。\n")
         return 0
 
     import requests
 
-    timeout = 20
+    timeout = int(fetch_cfg.get("timeout_seconds", 20))
+    total_usable = 0
     failures = 0
+
+    print()
     for source in sources:
         name = source.get("name", "(无名)")
-        url = source["url"]
+        started = _time.perf_counter()
         try:
             response = requests.get(
-                url,
+                url := source["url"],
                 timeout=timeout,
-                headers={"User-Agent": "info-radar/0.1 (+personal research)"},
+                headers={"User-Agent": fetch_cfg.get("user_agent", "info-radar/0.1")},
             )
-            body = response.text
-            entries = len(re.findall(r"<(?:item|entry)[\s>]", body))
-            if response.status_code == 200 and entries:
-                print(f"\n  [OK] {name}")
-                print(f"       {response.status_code}  {entries} 条  {len(body)} 字节")
-            elif response.status_code == 200:
-                print(f"\n  [?]  {name}")
-                print(f"       200 但解析不出条目。可能不是 RSS/Atom，而是网页。")
-                failures += 1
-            else:
-                print(f"\n  [!!] {name}")
-                print(f"       HTTP {response.status_code}")
-                failures += 1
         except Exception as exc:  # noqa: BLE001
-            print(f"\n  [!!] {name}")
-            print(f"       {type(exc).__name__}: {str(exc)[:150]}")
+            print(f"  [!!] {name}")
+            print(f"       {type(exc).__name__}: {str(exc)[:120]}")
             failures += 1
+            continue
+
+        elapsed = _time.perf_counter() - started
+
+        if response.status_code != 200:
+            print(f"  [!!] {name}   HTTP {response.status_code}")
+            failures += 1
+            continue
+
+        content_type = (response.headers.get("content-type") or "").lower()
+        if "html" in content_type:
+            print(f"  [!!] {name}")
+            print(f"       返回 HTML 而不是 XML —— 订阅地址很可能已经失效。")
+            failures += 1
+            continue
+
+        try:
+            items = parse_feed(response.content, name)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  [!!] {name}   解析失败：{str(exc)[:80]}")
+            failures += 1
+            continue
+
+        if not items:
+            print(f"  [!!] {name}   200 但解析不出任何条目，源可能改了格式。")
+            failures += 1
+            continue
+
+        lengths = sorted(len(item["body"]) for item in items)
+        usable = sum(1 for n in lengths if n >= min_chars)
+        total_usable += usable
+        median = int(statistics.median(lengths))
+
+        if usable == 0:
+            verdict = "只有摘要，一条都用不上"
+        elif usable < len(items) * 0.5:
+            verdict = "多数条目被长度门槛挡掉"
+        else:
+            verdict = "全文源，可用"
+
+        print(f"  [{'OK' if usable else '??'}] {name}")
+        print(f"       条目 {len(items)}　【可用 {usable}】　"
+              f"正文 最短{lengths[0]} 中位{median} 最长{lengths[-1]}　{elapsed:.1f}s")
+        print(f"       {verdict}")
 
     print()
     print(hr("="))
-    print(f"  成功 {len(sources) - failures} / {len(sources)}")
+    print(f"  源 {len(sources) - failures} / {len(sources)} 正常")
+    print(f"  【本轮共可入库 {total_usable} 篇可用正文】")
+    if total_usable >= 20:
+        print(f"  够做评估集了。跑：run.cmd collect")
+    elif total_usable:
+        print(f"  偏少。要凑 20 条真值样本，建议补几个全文源，或用 run.cmd inbox 手动投喂。")
+    else:
+        print(f"  一篇都用不上 —— 别急着跑 collect，先换源。")
     print(hr("="))
     print()
     return 0 if failures == 0 else 1

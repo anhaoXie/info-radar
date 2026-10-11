@@ -1,10 +1,11 @@
 {
   "_layer": "① 数据层",
   "_readme": "优先用 RSS / Atom / 官方 API。能拿契约就不要去解析别人的网页 —— 网页会改版，改版就静默失效。",
-  "_status": "下面这 6 个源是我【实测过】的。深色的是活的，灰色的是死的，留着给你看反面教材。",
-  "_how_to_add": "复制一个块，改 name / url。url 必须是以 .xml、/feed 或 /rss 结尾的订阅地址，不是网页地址。",
-  "_how_to_verify": "加完先跑 `run.cmd sources`，它会真的去抓一次，告诉你哪个源是死的。不要跳过这一步 —— 一个死掉的源不会报错，它只会安静地返回零条。",
-  "_allowlist": "新增的源，域名必须同时加进 config/policy.json 的 network.feed_hosts。这是故意的：出网应该是一次有意识的决定，而两处都要改，正好让你无法'顺手'加一个源。",
+  "_status": "下面这些源我都【实测过】，并且量过它们到底给了多少正文。实测数据见 docs/02。",
+  "_key_finding": "同样是技术媒体，差别有 30 倍：极客公园/爱范儿/钛媒体/雷锋网给全文（中位 3400-4500 字），而 Wired/少数派/TechCrunch 只给 100 多字的一句话摘要。判断一个源能不能用，唯一可靠的办法是量一下它的正文长度。",
+  "_how_to_add": "复制一个块，改 name / url。url 必须是 .xml / /feed / /rss / /atom 结尾的订阅地址，不是网页地址。",
+  "_how_to_verify": "加完先跑 `run.cmd sources`。它会真的抓一次，并报出每个源给了多少条【可用正文】。不要跳过这一步 —— 一个死掉的源不报错，它只是安静地返回零条。",
+  "_allowlist": "新增的源，域名必须同时加进 config/policy.json 的 network.feed_hosts。这是故意的：出网应该是一次有意识的决定。",
 
   "fetch": {
     "timeout_seconds": 20,
@@ -12,65 +13,130 @@
     "max_body_chars": 3000,
     "min_body_chars": 200,
     "delay_between_sources": 1.0,
-    "_body_note": "max_body_chars 是成本的总闸门：正文越长，每次调用越贵。先设 3000，等看到真实成本再调。min_body_chars 用来挡掉那些只给一句话摘要的源 —— 用没有原文的样本去测'摘要准不准'是自欺欺人。"
+    "_body_note": "max_body_chars 是成本的总闸门：正文越长，每次调用越贵。先设 3000，等看到真实成本再调。min_body_chars 挡掉那些只给一句话摘要的源 —— 用没有原文的样本去测'摘要准不准'是自欺欺人。"
   },
 
   "sources": [
     {
-      "name": "量子位",
-      "url": "https://www.qbitai.com/feed",
-      "enabled": true,
-      "category_hint": "模型与技术",
-      "note": "实测可用，中文，AI 行业资讯密度高。"
-    },
-    {
-      "name": "InfoQ 中文",
-      "url": "https://www.infoq.cn/feed",
-      "enabled": true,
-      "category_hint": "模型与技术",
-      "note": "实测可用，偏工程与技术实践。"
-    },
-    {
-      "name": "Google AI Blog",
-      "url": "https://blog.google/technology/ai/rss/",
+      "name": "极客公园",
+      "url": "https://www.geekpark.net/rss",
       "enabled": true,
       "category_hint": "产品发布",
-      "note": "实测可用，英文，大厂官方口径。"
+      "note": "实测：30/30 条可用，正文中位 4549 字。全文源。"
     },
     {
-      "name": "DeepMind Blog",
-      "url": "https://deepmind.google/blog/rss.xml",
+      "name": "爱范儿",
+      "url": "https://www.ifanr.com/feed",
+      "enabled": true,
+      "category_hint": "产品发布",
+      "note": "实测：20/20 条可用，正文中位 3891 字。全文源，速度也快。"
+    },
+    {
+      "name": "钛媒体",
+      "url": "https://www.tmtpost.com/rss.xml",
+      "enabled": true,
+      "category_hint": "市场与数据",
+      "note": "实测：18/18 条可用，正文中位 3402 字。全文源，偏产业分析。"
+    },
+    {
+      "name": "雷锋网",
+      "url": "https://www.leiphone.com/feed",
       "enabled": true,
       "category_hint": "模型与技术",
-      "note": "实测可用，英文，偏研究。"
+      "note": "实测：20/20 条可用，正文中位 4419 字。全文源，但响应慢（约 11 秒）。"
     },
     {
       "name": "MIT Technology Review",
       "url": "https://www.technologyreview.com/feed/",
-      "enabled": false,
+      "enabled": true,
       "category_hint": "观点与分析",
-      "note": "实测可用，但正文很长（单条可达数万字），会把 token 成本推高。要用就先把 max_body_chars 调小。"
+      "note": "实测：10/10 条可用，正文中位 6434 字，最长 31508 字。全文源，但会被 max_body_chars 截断。外网站点，网络不稳时可能失败。"
     },
     {
-      "name": "OpenAI Blog",
-      "url": "https://openai.com/blog/rss.xml",
+      "name": "Ars Technica",
+      "url": "https://feeds.arstechnica.com/arstechnica/index",
+      "enabled": true,
+      "category_hint": "模型与技术",
+      "note": "实测：20/20 条可用，正文中位 1208 字。全文源，长度适中（不容易被截断）。"
+    },
+
+    {
+      "name": "阮一峰的网络日志",
+      "url": "https://www.ruanyifeng.com/blog/atom.xml",
+      "enabled": false,
+      "category_hint": "观点与分析",
+      "note": "实测：3/3 条可用，正文中位 5079 字。全文源。更新频率低，配合使用。"
+    },
+    {
+      "name": "The Verge",
+      "url": "https://www.theverge.com/rss/index.xml",
       "enabled": false,
       "category_hint": "产品发布",
-      "note": "实测可用，但订阅源里有 1200+ 条历史文章。第一次抓会灌进大量旧闻 —— 这类源要先考虑'只取最近 N 条'，而这正是 max_items_per_source 存在的理由。"
+      "note": "实测：10/10 条可用，但正文中位只有 687 字 —— 刚过可用线。留着当'边缘案例'。"
     },
+    {
+      "name": "VentureBeat",
+      "url": "https://venturebeat.com/feed/",
+      "enabled": false,
+      "category_hint": "市场与数据",
+      "note": "实测：7 条里只有 4 条可用，中位 315 字。多数条目被 min_body_chars 挡掉。"
+    },
+    {
+      "name": "TechCrunch",
+      "url": "https://techcrunch.com/feed/",
+      "enabled": false,
+      "category_hint": "融资并购",
+      "note": "实测：20 条里只有 1 条可用，中位 137 字。基本只给标题。和 Wired/少数派 同一类。"
+    },
+    {
+      "name": "Wired",
+      "url": "https://www.wired.com/feed/rss",
+      "enabled": false,
+      "category_hint": "观点与分析",
+      "note": "实测：50 条里 0 条可用，中位 129 字。反面教材：条目很多，但一条都用不上。'条数多'和'能用'是两回事。"
+    },
+    {
+      "name": "少数派",
+      "url": "https://sspai.com/feed",
+      "enabled": false,
+      "category_hint": "产品发布",
+      "note": "实测：10 条里 0 条可用，中位 109 字。同上是纯摘要源。"
+    },
+
     {
       "name": "机器之心（已失效）",
       "url": "https://www.jiqizhixin.com/rss",
       "enabled": false,
       "category_hint": "模型与技术",
-      "note": "反面教材：返回 HTTP 200，但 content-type 是 text/html，正文里一条 item 都没有。RSS 订阅地址已被重定向到首页。它不报错，只是安静地返回零条 —— 这就是'源会死'的样子。"
+      "note": "反面教材：返回 HTTP 200，但 content-type 是 text/html，正文里一条 item 都没有。订阅地址已被重定向到首页。它不报错，只是安静地返回零条 —— 这就是'源会死'的样子。"
     },
     {
       "name": "36氪（已失效）",
       "url": "https://36kr.com/feed",
       "enabled": false,
       "category_hint": "融资并购",
-      "note": "反面教材：同上是 HTML。加源时必须先跑 run.cmd sources 验证，不要凭记忆填地址。"
+      "note": "反面教材：同上返回 HTML。加源时必须先跑 run.cmd sources 验证，不要凭记忆填地址。"
+    },
+    {
+      "name": "品玩（已失效）",
+      "url": "https://www.pingwest.com/feed",
+      "enabled": false,
+      "category_hint": "产品发布",
+      "note": "反面教材：2026-10 实测返回 HTML。"
+    },
+    {
+      "name": "The Register（已失效）",
+      "url": "https://www.theregister.com/headlines.atom",
+      "enabled": false,
+      "category_hint": "观点与分析",
+      "note": "反面教材：2026-10 实测返回 HTML。"
+    },
+    {
+      "name": "虎嗅（不稳定）",
+      "url": "https://www.huxiu.com/rss/0.xml",
+      "enabled": false,
+      "category_hint": "观点与分析",
+      "note": "实测读取超时。间歇性可用的源要谨慎启用 —— 它会变成每日一次的假失败。"
     }
   ]
 }

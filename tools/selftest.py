@@ -301,14 +301,23 @@ def main() -> int:
           collect_mod.content_hash("标题", "正文A") != collect_mod.content_hash("标题", "正文B"))
 
     policy_now = load_policy()
+    # 从配置里现取一个真实存在的域名，不要硬编码某个具体的源 ——
+    # 硬编码的断言会在你换掉源列表的那一刻失效，
+    # 而它失败的原因（"白名单里的源被判为不在白名单里"）看起来像是代码坏了。
+    feed_hosts = [h for h in ((policy_now.get("network") or {}).get("feed_hosts") or [])
+                  if isinstance(h, str) and "." in h]
+    check("白名单里确实有信息源域名（配置不是空的）", bool(feed_hosts),
+          "feed_hosts 是空的，后面的白名单测试没有意义")
     check("白名单外的新源会被拦下",
           collect_mod.missing_feed_hosts(
-              [{"url": "https://new-source.example.com/feed"}], policy_now
-          ) == ["new-source.example.com"])
+              [{"url": "https://definitely-not-listed.example.com/feed"}], policy_now
+          ) == ["definitely-not-listed.example.com"])
     check("白名单内的源不会误报",
-          collect_mod.missing_feed_hosts(
-              [{"url": "https://www.qbitai.com/feed"}], policy_now
-          ) == [])
+          bool(feed_hosts)
+          and collect_mod.missing_feed_hosts(
+              [{"url": f"https://{feed_hosts[0]}/feed"}], policy_now
+          ) == [],
+          f"实际用 {feed_hosts[0] if feed_hosts else '(空)'} 测的")
 
     # ---------------------------------------------------------- 本地投喂
     print("\n[① 数据层 · 本地投喂]")

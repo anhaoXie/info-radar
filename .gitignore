@@ -12,6 +12,16 @@ data/inbox/*
 !data/inbox/.gitkeep
 !data/inbox/_说明.md
 
+# 标注产物：里面含抓来的文章全文，不要提交
+eval/candidates.jsonl
+eval/worksheet.md
+# 但 labels.txt 要提交 —— 它只有 id 和你的判断，没有文章正文，
+# 而且它是你唯一无法重新生成的东西（重新 sample 会覆盖它）。
+# 你的判断值得被版本管理记住。
+
+# 注意：eval/eval_set.jsonl 会被提交。编译之后它里面会有文章正文，
+# 所以不要把本仓库公开推送 —— 或者手动把 body 字段清掉再推。
+
 # 产出：属于"结果"，不属于"代码"
 out/digests/*
 out/eval/*

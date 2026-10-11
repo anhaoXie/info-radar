@@ -800,17 +800,30 @@ def main() -> int:
             }
             real_load_sources = collect_mod.load_sources
             real_load_policy = collect_mod.load_policy
+            # 关键：把索引和状态文件的路径也换到临时目录。
+            # 第一版漏了这一步，于是测试里那个"死源"被真的写进了
+            # data/cache/sources-state.json，之后每次 run.cmd status 都在报一个不存在的源。
+            # **测试绝不能写进活状态。** 一个会污染真实数据的测试，
+            # 比没有测试更坏 —— 它会让你开始怀疑真实数据。
+            real_index_path = collect_mod.INDEX_PATH
+            real_state_path = collect_mod.STATE_PATH
             collect_mod.load_sources = lambda: dead_sources
             collect_mod.load_policy = lambda: {"network": {"feed_hosts": ["127.0.0.1"]}}
+            collect_mod.INDEX_PATH = Path(tmp) / "dead_index.json"
+            collect_mod.STATE_PATH = Path(tmp) / "dead_state.json"
             try:
                 error = expect_raises(
                     "全部信息源失败时大声报错", RuntimeError, runner_mod._step_collect
                 )
                 check("报错信息里指名道姓地列出了失败的源", "死源" in str(error or ""),
                       f"实际 {str(error or '')[:100]}")
+                check("失败的源被记进状态文件（供 run.cmd status 显示）",
+                      (Path(tmp) / "dead_state.json").exists(), "状态没落盘")
             finally:
                 collect_mod.load_sources = real_load_sources
                 collect_mod.load_policy = real_load_policy
+                collect_mod.INDEX_PATH = real_index_path
+                collect_mod.STATE_PATH = real_state_path
 
             # 2) 所有条目都调用失败 —— 那是密钥/余额/网络的问题，不是内容的问题
             class FakePipeline:
