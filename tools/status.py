@@ -104,9 +104,11 @@ def show_progress() -> int:
 
     label_state = "real" if state == "real" else ("占位" if state == "placeholder" else "缺失")
     print(f"       评估集 {row_count_text(rows)}（{label_state}）")
-    if state == "placeholder":
+    if state == "placeholder" and not (PROJECT_ROOT / "eval" / "candidates.jsonl").exists():
+        # 只有在"既没有真值、也没有待标注样本"时，才提示去搞文档。
+        # 已经有 20 条样本摆在那儿了还让人去导入，是在制造多余的步骤。
         print("       ^ 现在是占位数据，只能验证链路，不能代表真实效果")
-        print("         用 run.cmd inbox 导入你自己的文档，再 run.cmd sample -N 20")
+        print("         先用 run.cmd collect 抓一批，或 run.cmd inbox 用你自己的文档")
 
     labels_now = label_progress()
     if labels_now and labels_now[0] < labels_now[1]:
