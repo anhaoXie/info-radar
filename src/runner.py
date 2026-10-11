@@ -56,6 +56,7 @@ from typing import Callable
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.display import pad, rpad, truncate  # noqa: E402
 from src.config import load_policy, load_task, main_guard  # noqa: E402
 from src.secrets import PROJECT_ROOT as ROOT  # noqa: E402
 
@@ -523,6 +524,36 @@ def _short_ts(value: object) -> str:
     return text[:16]
 
 
+def render_health_table(rows: list[dict], escalate_after: int = 3) -> list[str]:
+    """把健康表排成若干行文本。纯函数，所以能被离线测试。
+
+    【为什么不能直接用 f"{x:<12}"】
+
+    f-string 的 `<12` 数的是**字符个数**。中文标签"任务"算 2 个字符、
+    实际占 4 列 —— 于是表头每一格都比数据行宽，后面所有列跟着往右偏。
+
+    实测修之前：表头"最近结果"落在第 48 列，数据却从第 38 列开始，**差 10 列**。
+    而这张表是你判断"流程是死了还是只是今天没新闻"的唯一依据 ——
+    横着扫对不上，就等于没排。
+
+    （这类 bug 只用英文数据永远测不出来。而这个项目的标签全是中文。）
+    """
+    lines = [
+        "  " + pad("任务", 12) + rpad("连续失败", 8) + "  "
+        + pad("上次成功", 18) + "最近结果",
+        "  " + "-" * 62,
+    ]
+    for row in rows:
+        streak = row["consecutive_failures"]
+        mark = "!!" if streak >= escalate_after else ("? " if streak else "  ")
+        summary = row["last_summary"] or row["last_error"] or ""
+        lines.append(
+            "  " + mark + pad(row["task"], 10) + rpad(str(streak), 8) + "  "
+            + pad(_short_ts(row["last_success"]), 18) + truncate(str(summary), 30)
+        )
+    return lines
+
+
 def print_health(health: Health) -> int:
     rows = health.table()
     print()
@@ -536,14 +567,8 @@ def print_health(health: Health) -> int:
         print()
         return 0
 
-    print()
-    print(f"  {'任务':<12}{'连续失败':>8}  {'上次成功':<14}{'最近结果'}")
-    print("  " + "-" * 64)
-    for row in rows:
-        streak = row["consecutive_failures"]
-        mark = "!!" if streak >= health.escalate_after else ("? " if streak else "  ")
-        summary = row["last_summary"] or row["last_error"] or ""
-        print(f"  {mark}{row['task']:<10}{streak:>6}    {_short_ts(row['last_success']):<14}{str(summary)[:30]}")
+    for line in render_health_table(rows, health.escalate_after):
+        print(line)
 
     escalating = health.escalating()
     print()

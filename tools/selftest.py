@@ -1381,6 +1381,62 @@ def main() -> int:
         finally:
             runner_mod.ALERT_PATH = original_alert
 
+    # ---- 健康表的列要对得齐
+    #
+    # 表头是中文标签、数据是英文，两边都用 f"{x:<12}" 补空格 ——
+    # 而 f-string 数的是字符个数："任务"算 2 个字符、实际占 4 列。
+    # 于是表头每一格都比数据行宽，后面所有列跟着往右偏。
+    #
+    # 实测修之前：表头"最近结果"在第 48 列，数据从第 38 列开始，**差 10 列**。
+    # 而这张表是你判断"流程是死了还是只是今天没新闻"的唯一依据 ——
+    # 横着扫对不上，就等于没排。
+    print("\n[⑤ 界面 · 健康表的列要对得齐]")
+
+    from src.display import width as _dw
+
+    marker = "标记甲乙丙"
+    health_lines = runner_mod.render_health_table(
+        [
+            {"task": "collect", "consecutive_failures": 0,
+             "last_success": "2026-10-11T21:30:00+08:00",
+             "last_summary": marker, "last_error": None},
+            {"task": "pipeline", "consecutive_failures": 2,
+             "last_success": "2026-10-11T21:31:00+08:00",
+             "last_summary": "处理 12/12 条", "last_error": None},
+            {"task": "digest", "consecutive_failures": 0,
+             "last_success": None, "last_summary": None, "last_error": None},
+            {"task": "escalated", "consecutive_failures": 3,
+             "last_success": None, "last_summary": "连败三次", "last_error": "boom"},
+        ],
+        3,
+    )
+    header_line, _sep, *data_lines = health_lines
+
+    check("健康表有表头和数据行", len(data_lines) == 4, f"实际 {len(data_lines)} 行")
+
+    # 不写死列号，用标记字符串去量 —— 这样改了列宽测试仍然有意义。
+    header_detail_col = _dw(header_line[: header_line.index("最近结果")])
+    data_detail_col = _dw(data_lines[0][: data_lines[0].index(marker)])
+    check("数据行的说明列，和表头「最近结果」对齐",
+          header_detail_col == data_detail_col,
+          f"表头在第 {header_detail_col} 列，数据在第 {data_detail_col} 列")
+
+    header_streak_col = _dw(header_line[: header_line.index("连续失败")])
+    check("「连续失败」列从数据行的同一位开始（数字右对齐在它里面）",
+          header_streak_col == 14, f"实际 {header_streak_col}")
+
+    check("健康表每一行都不超过 80 列",
+          all(_dw(line) <= 80 for line in health_lines),
+          f"最宽 {max(_dw(line) for line in health_lines)} 列")
+
+    # 三档标记：没失败、失败但没到阈值、到阈值了
+    check("没失败过的任务，前面留白（不吓人）",
+          data_lines[0].lstrip().startswith("collect"), f"实际 {data_lines[0]!r}")
+    check("失败但还没到阈值，标一个问号",
+          data_lines[1].lstrip().startswith("? "), f"实际 {data_lines[1]!r}")
+    check("连续失败到阈值的任务，标两个感叹号",
+          data_lines[3].lstrip().startswith("!!"), f"实际 {data_lines[3]!r}")
+
     # "还没配密钥"不是"坏了"。
     #
     # 这条漏网过一次：daily 里的 pipeline 步骤把"没有密钥"记成了一次失败。

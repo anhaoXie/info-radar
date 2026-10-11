@@ -64,7 +64,35 @@ def truncate(text: str, columns: int, *, ellipsis: str = ELLIPSIS) -> str:
 
 
 def pad(text: str, columns: int) -> str:
-    """按显示宽度右侧补空格，让多行能对齐。"""
+    """按显示宽度右侧补空格，让多行能左对齐。"""
     text = str(text)
     gap = columns - width(text)
     return text + " " * gap if gap > 0 else text
+
+
+def rpad(text: str, columns: int) -> str:
+    """按显示宽度左侧补空格，让多行能右对齐（数字列常用）。"""
+    text = str(text)
+    gap = columns - width(text)
+    return " " * gap + text if gap > 0 else text
+
+
+def table_row(cells: list[tuple[str, int, str]], separator: str = " ") -> str:
+    """按显示宽度排一行表格。
+
+    cells 是 (文本, 列宽, 对齐方式) 的列表，对齐方式是 "l" 或 "r"。
+
+    【为什么不能直接用 f"{x:<12}"】
+
+    f-string 的 `<12` 数的是**字符个数**。中文标签"任务"算 2 个字符、
+    实际占 4 列 —— 于是表头那一格比数据行宽出 4 列，
+    后面每一列都跟着往右偏。
+
+    实测 `run.cmd health`：表头写着"最近结果"的那一列在第 48 列，
+    数据却从第 38 列开始 —— **差了 10 列，横着扫根本对不上**。
+    而这张表是你判断"流程是死了还是只是今天没新闻"的唯一依据。
+    """
+    parts = []
+    for text, columns, align in cells:
+        parts.append(rpad(text, columns) if align == "r" else pad(text, columns))
+    return separator.join(parts)
