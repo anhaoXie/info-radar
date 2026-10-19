@@ -20,7 +20,6 @@ eval/worksheet-lite.md
 # 而且它是你唯一无法重新生成的东西（重新 sample 会覆盖它）。
 # 你的判断值得被版本管理记住。
 
-# 注意：eval/eval_set.jsonl 会被提交。编译之后它里面会有文章正文，
 # 所以不要把本仓库公开推送 —— 或者手动把 body 字段清掉再推。
 
 # 产出：属于"结果"，不属于"代码"
@@ -50,3 +49,8 @@ venv/
 .idea/
 Thumbs.db
 desktop.ini
+
+# 编译后的评估集含【别人的文章正文】，而仓库是公开的，所以不提交它。
+# 本地保留即可，随时能重新 compile。
+# 真正值得提交的是 eval/labels.txt —— 那是人的判断，不含正文。
+eval/eval_set.jsonl
