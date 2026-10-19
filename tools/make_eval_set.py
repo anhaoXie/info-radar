@@ -43,6 +43,38 @@ LABELS_PATH = EVAL_DIR / "labels.txt"
 WORKSPACE_PATH = EVAL_DIR / "worksheet.md"
 LITE_PATH = EVAL_DIR / "worksheet-lite.md"
 EVAL_SET_PATH = EVAL_DIR / "eval_set.jsonl"
+TRANSLATIONS_PATH = EVAL_DIR / "translations.json"
+
+
+def load_translations() -> dict:
+    """读英文文章的中文翻译（按 id 索引）。
+
+    【为什么不直接塞进 candidates.jsonl】
+
+    那个文件是【派生数据】—— 每次跑 run.cmd sample 都会重建它。
+    翻译塞在里面，一重新抽样就全丢了，而用户完全不会意识到。
+
+    所以翻译单独存 eval/translations.json（被 git 跟踪），
+    和抽样过程解耦：重新抽一百次，翻译都还在。
+    """
+    if not TRANSLATIONS_PATH.exists():
+        return {}
+    try:
+        data = json.loads(read_text_smart(TRANSLATIONS_PATH))
+    except (json.JSONDecodeError, OSError, ValueError):
+        return {}
+    return data.get("items") or {}
+
+
+def merge_translations(rows: list[dict]) -> list[dict]:
+    """把翻译合并进候选条目。没有翻译的条目保持原样。"""
+    translations = load_translations()
+    for row in rows:
+        tr = translations.get(row.get("id"))
+        if tr:
+            row["zh_title"] = tr.get("zh_title", "")
+            row["zh_preview"] = tr.get("zh_preview", "")
+    return rows
 
 AMBIGUOUS = {"?", "？", "x", "X"}
 
@@ -455,6 +487,10 @@ def cmd_wizard(args: argparse.Namespace) -> int:
         for line in read_text_smart(CANDIDATES_PATH).splitlines()
         if line.strip()
     ]
+    # 英文文章的译文单独存在 eval/translations.json 里，
+    # 不依赖 candidates.jsonl（那是派生数据，重新抽样会重建）。
+    # 在这里合并进来，后面显示时直接读 item["zh_title"]。
+    candidates = merge_translations(candidates)
     order = [item["id"] for item in candidates]
     by_id = {item["id"]: item for item in candidates}
     answers = parse_labels(LABELS_PATH)
@@ -490,10 +526,36 @@ def cmd_wizard(args: argparse.Namespace) -> int:
         # candidates.jsonl 里没有 body_chars 字段，直接数一遍就行。
         # 第一版用了 item.get("body_chars", 0)，于是每条都显示"0 字"。
         chars = len(body)
+        zh_title = item.get("zh_title")
         print()
         print("-" * 66)
         print(f"  【第 {index} 条 / 还剩 {len(remaining) - index + 1} 条】")
         print()
+
+        if zh_title:
+            # ---- 英文文章：先给中文，原文放后面当参考 ----
+            #
+            # 【为什么要有这一段】
+            #
+            # 第一版直接把原文（英文）打出来，让人按 10 个【中文】分类去归档。
+            # 这等于让一个中文用户拿英文材料做判断 —— 他要么看不懂，
+            # 要么因为看不懂而随便按一个数字。
+            # 而随便按的数字会变成"标准答案"，让后面所有的准确率都失去意义。
+            #
+            # 所以：中文标题 + 中文译文放前面（判断够用），原文放后面（可跳过）。
+            print(f"  中文标题：{zh_title}")
+            print(f"  来源：{item.get('source', '')}　·　原文 {chars} 字　·　英文文章（已翻译）")
+            print()
+            print(f"  {item.get('zh_preview', '')}")
+            print()
+            print("  " + "·" * 40)
+            print("  以下是英文原文（只是给你对照，不影响判断，可以不看）")
+            print()
+            print(f"  {item.get('title', '')}")
+            print()
+            print(f"  {body[:300]}")
+            return
+
         print(f"  {item.get('title', '')}")
         print(f"  来源：{item.get('source', '')}　·　{chars} 字")
         print()
@@ -520,9 +582,23 @@ def cmd_wizard(args: argparse.Namespace) -> int:
         body = " ".join(str(item.get("body", "")).split())
         print()
         print("  " + "-" * 62)
-        print(f"  {item.get('title', '')}")
-        print(f"  来源：{item.get('source', '')}　·　{len(body)} 字")
-        print()
+        zh_title = item.get("zh_title")
+        if zh_title:
+            print(f"  【中文标题】{zh_title}")
+            print(f"  来源：{item.get('source', '')}　·　原文 {len(body)} 字　·　英文")
+            print()
+            print(f"  【中文译文】")
+            print(f"  {item.get('zh_preview', '')}")
+            print()
+            print("  " + "·" * 40)
+            print("  以下是英文原文全文：")
+            print()
+            print(f"  {item.get('title', '')}")
+            print()
+        else:
+            print(f"  {item.get('title', '')}")
+            print(f"  来源：{item.get('source', '')}　·　{len(body)} 字")
+            print()
         for start in range(0, len(body), 900):
             print(f"  {body[start:start + 900]}")
         print("  " + "-" * 62)

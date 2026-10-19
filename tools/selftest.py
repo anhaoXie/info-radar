@@ -815,6 +815,37 @@ def main() -> int:
           "w1 | 模型与技术 | 4" in saved_labels,
           f"实际存成：{[l for l in saved_labels.splitlines() if l.startswith('w1')]}")
 
+    # ---- 英文文章要有中文翻译
+    #
+    # 20 篇样本里有 8 篇是英文的。原先向导直接把英文原文打出来，
+    # 让人按 10 个【中文】分类去归档 —— 这等于让一个中文用户拿英文材料做判断。
+    # 他要么看不懂，要么因为看不懂而随便按一个数字。
+    # 而随便按的数字会变成「标准答案」，让后面所有准确率都失去意义。
+    #
+    # 译文单独存在 eval/translations.json（被 git 跟踪），不放进 candidates.jsonl ——
+    # 那是派生数据，run.cmd sample 一跑就重建，翻译塞在里面会静默丢失。
+    print("\n[① 数据层 · 英文文章的中文翻译]")
+
+    translations = make_eval_set.load_translations()
+    check("translations.json 里有译文", len(translations) > 0,
+          "没有译文的话，英文文章只能看原文")
+    check("每条译文都有中文标题和中文摘要",
+          all(tr.get("zh_title") and tr.get("zh_preview")
+              for tr in translations.values()),
+          f"缺字段：{[k for k, v in translations.items() if not (v.get('zh_title') and v.get('zh_preview'))][:3]}")
+
+    first_id = next(iter(translations))
+    merged = make_eval_set.merge_translations([
+        {"id": first_id, "title": "original", "body": "x"},
+        {"id": "根本没有这条翻译", "title": "原样保留", "body": "y"},
+    ])
+    check("有译文的条目被补上了中文标题", bool(merged[0].get("zh_title")))
+    check("没有译文的条目原样保留（不会崩，也不会乱填）",
+          "zh_title" not in merged[1], f"实际 {merged[1]}")
+    check("译文和 candidates.jsonl 是解耦的（重新抽样不会丢）",
+          make_eval_set.TRANSLATIONS_PATH != make_eval_set.CANDIDATES_PATH,
+          "存进 candidates.jsonl 的话，run.cmd sample 一跑就没了")
+
     # ---- 别叫用户去做一件已经做过的事
     #
     # compile 结尾原来写死了「下一步：先填 config/providers.json 的单价」。
