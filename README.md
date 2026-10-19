@@ -248,7 +248,8 @@ info-radar/
 │   ├─ selftest.py           离线自检纯逻辑（不花钱）
 │   ├─ mocktest.py           全链路自检：本地假服务端验证真客户端
 │   ├─ make_eval_set.py      抽样 / 标注表 / 编译评估集
-│   └─ status.py             进展总览与账本速览
+│   ├─ status.py             进展总览与账本速览
+│   └─ push_github.py         推到 GitHub（判断都做完，只留授权给你）
 │
 ├─ eval/
 │   ├─ eval_set.jsonl        真值样本（现在是占位数据，你要替换）
