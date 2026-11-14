@@ -90,6 +90,38 @@ def main() -> int:
           any("bearer" in p.lower() for p in key_problems("Bearer sk-abcdef1234567890")))
     check("空值会被指出", key_problems("") == ["是空的"])
 
+    # ---------------------------------------------------------- ⑤ .env 解析
+    # .env 是用户唯一会手写密钥的地方，而最常见的两种写法会叠加在一起：
+    #   ZHIPU_API_KEY="sk-xxx"   # 我申请的第一把
+    # 旧实现按「首尾都是引号」判断，遇到行尾注释就保留下引号，
+    # 得到一份带引号的密钥 —— 调用时才表现为「密钥被拒绝」，
+    # 而报错信息里完全看不出是引号的锅。
+    print("\n[⑤ 权限层 · .env 解析]")
+    from src.secrets import _parse_env_file
+
+    with tempfile.TemporaryDirectory() as _tmp_dir:
+        _env_path = Path(_tmp_dir) / ".env"
+        _env_path.write_text(
+            "PLAIN=abc123\n"
+            'QUOTED="value-with-quotes"  # 行尾注释\n'
+            "SINGLE='single-quoted'\n"
+            'HASH="a # b"\n'
+            "export EXPORTED=plain\n",
+            encoding="utf-8",
+        )
+        _parsed = _parse_env_file(_env_path)
+
+    check("普通值原样读出", _parsed.get("PLAIN") == "abc123",
+          f"实际 {_parsed.get('PLAIN')!r}")
+    check("双引号 + 行尾注释 → 值不带引号",
+          _parsed.get("QUOTED") == "value-with-quotes", f"实际 {_parsed.get('QUOTED')!r}")
+    check("单引号值也能去引号",
+          _parsed.get("SINGLE") == "single-quoted", f"实际 {_parsed.get('SINGLE')!r}")
+    check("引号里的 # 不会被当成注释",
+          _parsed.get("HASH") == "a # b", f"实际 {_parsed.get('HASH')!r}")
+    check("export KEY=VALUE 也能读",
+          _parsed.get("EXPORTED") == "plain", f"实际 {_parsed.get('EXPORTED')!r}")
+
     # ---------------------------------------------------------- ⓞ 解析
     print("\n[ⓞ 任务层 · 输出解析]")
 

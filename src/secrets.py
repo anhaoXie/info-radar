@@ -55,8 +55,17 @@ def _parse_env_file(path: Path) -> dict[str, str]:
             continue
         key, _, value = line.partition("=")
         key, value = key.strip(), value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
+        if key.startswith("export "):
+            key = key[len("export "):].strip()
+        # 先认引号，再处理行尾注释：
+        #   KEY="sk-xxx"   # 注释
+        # 如果只用「首尾都是引号」判断，引号会被保留下来 —— 得到一份带引号的
+        # 密钥，表现为「密钥被拒绝」，而报错里看不出是引号的问题。
+        # 引号内的 # 是值的一部分（KEY="a # b"），引号外的 # 才是注释。
+        if value[:1] in ("'", '"'):
+            quote = value[0]
+            end = value.find(quote, 1)
+            value = value[1:end] if end != -1 else value[1:]
         elif " #" in value:
             value = value.split(" #", 1)[0].strip()
         if key:

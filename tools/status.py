@@ -782,11 +782,14 @@ def show_status_plain() -> int:
             print()
             print("       第 4 步　回来跑：run.cmd probe")
             print()
-            others = "、".join(
-                v.get("label", k) for k, v in providers.items() if k != "zhipu"
-            )
-            if others:
-                print("       用别家也行：" + others)
+            labels = [v.get("label", k) for k, v in providers.items() if k != "zhipu"]
+            if labels:
+                # 不要把 4 个 provider 挤在一行：实测拼出来 99 列宽，
+                # 80 列终端会折行（selftest 的「面板每行不超过 80 列」就是为这个存在的）。
+                # 一行一个，一屏内看得完，也不会随 provider 数量变多而溢出。
+                print("       用别家也行（任选其一）：")
+                for label in labels:
+                    print("         · " + label)
         else:
             print("       看 docs/03-完整走一遍.md 的第 4 步")
         next_action_given = True
